@@ -72,6 +72,32 @@ handle_error() {
     exit 1
 }
 
+# Projektnamen abfragen
+ask_project_name() {
+    print_step "Projektnamen festlegen"
+    
+    # Default-Projektnamen anzeigen und abfragen
+    echo -e "${CYAN}Bitte geben Sie den Namen für Ihr Laravel-Projekt ein:${NC} - Keine Sonderzeichen und keine Leerzeichen"
+    read -p "Projektname (Standard: $PROJECT_NAME): " -r INPUT_PROJECT_NAME
+    
+    # Eingabe validieren und verwenden
+    if [ -n "$INPUT_PROJECT_NAME" ]; then
+        # Überprüfen ob der Name gültig ist (keine Sonderzeichen, keine Leerzeichen)
+        if [[ "$INPUT_PROJECT_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            PROJECT_NAME="$INPUT_PROJECT_NAME"
+            print_success "Projektname wurde festgelegt auf: $PROJECT_NAME"
+        else
+            print_error "Ungültiger Projektname! Nur Buchstaben, Zahlen, Unterstrich und Bindestrich sind erlaubt."
+            print_info "Verwende Standard-Projektnamen: $PROJECT_NAME"
+            sleep 2
+        fi
+    else
+        print_success "Verwende Standard-Projektnamen: $PROJECT_NAME"
+    fi
+    
+    echo
+}
+
 # Systemvoraussetzungen prüfen
 check_prerequisites() {
     print_step "Systemvoraussetzungen werden überprüft..."
@@ -435,6 +461,10 @@ main() {
     clear
     print_header "Laravel + Filament 5.1 Installationsskript"
     print_info "Dieses Skript erstellt ein vollständiges Laravel-Projekt mit modernem Stack"
+    
+    # Projektnamen abfragen
+    ask_project_name
+    
     print_info "Projektname: $PROJECT_NAME | Datenbank: $DATABASE_TYPE"
     
     # Installationsschritte durchführen
