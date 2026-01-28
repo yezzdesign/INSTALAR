@@ -77,7 +77,7 @@ ask_project_name() {
     print_step "Projektnamen festlegen"
     
     # Default-Projektnamen anzeigen und abfragen
-    echo -e "${CYAN}Bitte geben Sie den Namen für Ihr Laravel-Projekt ein:${NC} - Keine Sonderzeichen und keine Leerzeichen"
+    echo -e "${CYAN}Bitte geben Sie den Namen für Ihr Laravel-Projekt ein:${NC}"
     read -p "Projektname (Standard: $PROJECT_NAME): " -r INPUT_PROJECT_NAME
     
     # Eingabe validieren und verwenden
