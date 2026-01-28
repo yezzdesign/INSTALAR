@@ -98,6 +98,44 @@ ask_project_name() {
     echo
 }
 
+# PHP-Version auswählen
+ask_php_version() {
+    print_step "PHP-Version auswählen"
+    
+    echo -e "${CYAN}Welche PHP-Version möchten Sie installieren?${NC}"
+    echo "1) PHP 8.3 (stabile Version)"
+    echo "2) PHP 8.4 (stabile Version)"
+    echo "3) PHP 8.5 (neueste stabile Version) *empfohlen"
+    
+    while true; do
+        read -p "Wählen Sie eine Option (1-3, Standard: 2): " -r PHP_CHOICE
+        case $PHP_CHOICE in
+            1)
+                PHP_VERSION="8.3"
+                PHP_INSTALL_URL="https://php.new/install/linux/8.3"
+                print_success "PHP 8.3 ausgewählt"
+                break
+                ;;
+            2|"" )
+                PHP_VERSION="8.4"
+                PHP_INSTALL_URL="https://php.new/install/linux/8.4"
+                print_success "PHP 8.4 ausgewählt"
+                break
+                ;;
+            3)
+                PHP_VERSION="8.5"
+                PHP_INSTALL_URL="https://php.new/install/linux/8.5"
+                print_success "PHP 8.5 ausgewählt"
+                break
+                ;;
+            *)
+                print_error "Ungültige Auswahl! Bitte wählen Sie 1, 2 oder 3."
+                ;;
+        esac
+    done
+    echo
+}
+
 # Systemvoraussetzungen prüfen
 check_prerequisites() {
     print_step "Systemvoraussetzungen werden überprüft..."
@@ -115,8 +153,10 @@ check_prerequisites() {
             exit 1
         fi
     else
-        print_error "PHP wurde nicht gefunden. Installiere die neueste Version PHP 8.5..."
-        /bin/bash -c "$(curl -fsSL https://php.new/install/linux/8.5)"
+        print_error "PHP wurde nicht gefunden."
+        ask_php_version
+        print_info "Installiere PHP $PHP_VERSION..."
+        /bin/bash -c "$(curl -fsSL $PHP_INSTALL_URL)"
         
         # Nach der Installation prüfen ob PHP verfügbar ist
         if command -v php &> /dev/null; then
