@@ -1,6 +1,16 @@
+```txt
+  ___           _        _
+ |_ _|_ __  ___| |_ __ _| | __ _ _ __
+  | || '_ \/ __| __/ _` | |/ _` | '__|
+  | || | | \__ \ || (_| | | (_| | |
+ |___|_| |_|___/\__\__,_|_|\__,_|_|
+
+ [ Laravel + Filament Install Script ]
+```
+
 # INSTALAR
 
-instalar ist ein Bash-Skript, das ein frisches Laravel-Projekt inklusive Filament aufsetzt.
+Instalar ist ein Bash-Skript, das ein frisches Laravel-Projekt inklusive Filament aufsetzt.
 Es automatisiert das komplette Setup für einen modernen Laravel-Stack mit SQLite,
 Livewire, Pest und Laravel Boost.
 
@@ -53,4 +63,3 @@ Nach dem Lauf findest du ein neues Projektverzeichnis mit:
 - Es aktualisiert/ installiert den Laravel Installer global und passt ggf. `~/.bashrc` an.
 - Standard-Login ist `admin@example.com` / `password` (bitte ändern!).
 - Bei Fehlern wird `installation_errors.log` angelegt.
-
