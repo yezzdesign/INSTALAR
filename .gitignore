@@ -1,5 +1,6 @@
 .gitignore
 .idea
+/v2
 /laravel-test
 /Laravel-2026
 installation_errors.log

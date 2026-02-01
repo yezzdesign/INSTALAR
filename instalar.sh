@@ -1,33 +1,91 @@
 #!/bin/bash
 #================================================================================
-# Laravel + Filament 5.1 Installationsskript
+# INSTALAR v2.0 - Laravel + Filament Installationsskript
+#================================================================================
 # Erstellt ein vollständiges Laravel-Projekt mit modernem Stack
-# Projektname: INSTALAR
-# Datenbank: SQLite
-# Packages: Full Stack (Filament + Livewire + Pest + alle empfohlenen Packages)
-# Author: yezz.design <design@schodie.de>
-# AI-Disclaimer: AI used for formatting, comments and planning
+# 
+# AUTOR:       yezz.design <design@schodie.de>
+# VERSION:     2.0.0
+# DATENBANK:   SQLite
+# STACK:       Laravel + Filament 5.1 + Livewire + Pest
+# 
+# NUTZUNG:
+#   chmod +x instalar.sh
+#   ./instalar.sh
+#
 #================================================================================
 
-# Skript-Konfiguration
-set -e  # Bei Fehlern sofort beenden
-PROJECT_NAME="Laravel-2026"
-DATABASE_TYPE="sqlite"
+# Bei Fehlern sofort beenden
+set -e
+set -o pipefail
+
+#================================================================================
+# KONFIGURATION & KONSTANTEN
+#================================================================================
+
+# Exit-Codes für Fehlerbehandlung
+readonly EXIT_SUCCESS=0
+readonly EXIT_ERROR_GENERAL=1
+readonly EXIT_ERROR_PREREQ=2
+readonly EXIT_ERROR_LARAVEL=3
+readonly EXIT_ERROR_DB=4
+readonly EXIT_ERROR_PERMISSIONS=5
+readonly EXIT_ERROR_GIT=6
+readonly EXIT_ERROR_USER_CANCEL=130
+
+# Projektkonfiguration
+readonly SCRIPT_NAME="INSTALAR"
+readonly SCRIPT_VERSION="2.0.0"
+readonly DEFAULT_PROJECT_NAME="Laravel-2026"
+readonly DEFAULT_DATABASE_TYPE="sqlite"
+
+# Installationsvariablen
+INSTALLATION_MODE="automatic"
 USE_DEV_VERSION=false
 JETSTREAM_STACK="livewire"
+ENABLE_GIT=false
+PROJECT_NAME="$DEFAULT_PROJECT_NAME"
 
-# Installationsmodus und Paketauswahl-Variablen
-INSTALLATION_MODE="automatic"
+# Paket-Flags
 INSTALL_FILAMENT=true
 INSTALL_LIVEWIRE=true
 INSTALL_PEST=true
 INSTALL_BOOST=true
+
+# Versionen
 FILAMENT_VERSION="^5.1"
 LIVEWIRE_VERSION="^4.1"
 PEST_VERSION="^2.0"
-BOOST_VERSION=""
-ENABLE_GIT=false
+
+# Git-Konfiguration
 GIT_INITIAL_COMMIT_MESSAGE="Initial commit"
+GIT_USER_NAME="${USER:-user}"
+GIT_USER_EMAIL="${USER:-user}@localhost"
+
+# Datenbank-Konfiguration
+DATABASE_TYPE="$DEFAULT_DATABASE_TYPE"
+DB_HOST="127.0.0.1"
+DB_PORT=""
+DB_DATABASE=""
+DB_USERNAME=""
+DB_PASSWORD=""
+
+# Datenbank-Typen verfügbar
+readonly DATABASE_TYPES=(sqlite mysql pgsql sqlsrv)
+declare -A DATABASE_LABEL=(
+    [sqlite]="SQLite (Datei-basiert, empfohlen für Entwicklung)"
+    [mysql]="MySQL / MariaDB"
+    [pgsql]="PostgreSQL"
+    [sqlsrv]="SQL Server"
+)
+declare -A DATABASE_DEFAULT_PORT=(
+    [sqlite]=""
+    [mysql]="3306"
+    [pgsql]="5432"
+    [sqlsrv]="1433"
+)
+
+# Arrays für Pakete
 EXTRA_PACKAGES=()
 EXTRA_DEV_PACKAGES=()
 SELECTED_PACKAGE_IDS=()
@@ -35,34 +93,21 @@ SELECTED_PACKAGE_LABELS=()
 SELECTED_FEATURE_IDS=()
 SELECTED_FEATURE_LABELS=()
 
+#================================================================================
+# PAKET-DEFINITIONEN
+#================================================================================
+
+# Paket-Keys (Reihenfolge der Anzeige)
 PACKAGE_KEYS=(
-    filament
-    livewire
-    pest
-    boost
-    fortify
-    sanctum
-    passport
-    socialite
-    permission
-    scout
-    horizon
-    telescope
-    health
-    backup
-    activitylog
-    settings
-    medialibrary
-    csp
-    honeypot
-    excel
-    sentry
-    debugbar
-    pint
-    larastan
-    ide-helper
+    filament livewire pest boost
+    fortify sanctum passport socialite
+    permission scout horizon telescope
+    health backup activitylog settings
+    medialibrary csp honeypot excel
+    sentry debugbar pint larastan ide-helper
 )
 
+# Paket-Labels
 declare -A PACKAGE_LABEL=(
     [filament]="Filament (Admin Panel)"
     [livewire]="Livewire (Frontend)"
@@ -91,6 +136,7 @@ declare -A PACKAGE_LABEL=(
     [ide-helper]="IDE Helper (Autoload Hints)"
 )
 
+# Composer-Paketnamen
 declare -A PACKAGE_COMPOSER=(
     [filament]="filament/filament"
     [livewire]="livewire/livewire"
@@ -119,6 +165,7 @@ declare -A PACKAGE_COMPOSER=(
     [ide-helper]="barryvdh/laravel-ide-helper"
 )
 
+# Dev-Pakete (werden mit --dev installiert)
 declare -A PACKAGE_DEV=(
     [pest]=true
     [telescope]=true
@@ -128,6 +175,7 @@ declare -A PACKAGE_DEV=(
     [ide-helper]=true
 )
 
+# Standard-Pakete (im Automatik-Modus)
 declare -A PACKAGE_DEFAULT=(
     [filament]=true
     [livewire]=true
@@ -136,13 +184,8 @@ declare -A PACKAGE_DEFAULT=(
     [debugbar]=true
 )
 
-FEATURE_KEYS=(
-    breeze
-    jetstream
-    redis
-    scout-meilisearch
-    horizon
-)
+# Feature-Definitionen
+FEATURE_KEYS=(breeze jetstream redis scout-meilisearch horizon)
 
 declare -A FEATURE_LABEL=(
     [breeze]="Laravel Breeze (Auth Starter)"
@@ -160,135 +203,178 @@ declare -A FEATURE_COMPOSER=(
     [horizon]="laravel/horizon"
 )
 
-declare -A FEATURE_DEV=(
-    [breeze]=true
-    [jetstream]=true
-)
+declare -A FEATURE_DEV=([breeze]=true [jetstream]=true)
 
 declare -A FEATURE_DEFAULT=()
 
-# Farbdefinitionen für bessere Lesbarkeit
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+# PHP-Extensions
+REQUIRED_EXTENSIONS=(mbstring xml ctype iconv intl pdo tokenizer bcmath json fileinfo pdo_sqlite openssl zip)
 
-# Hilfsfunktionen für formatierte Ausgabe
+#================================================================================
+# FARBDEFINITIONEN & AUSGABEFUNKTIONEN
+#================================================================================
+
+readonly COLOR_RED='\033[0;31m'
+readonly COLOR_GREEN='\033[0;32m'
+readonly COLOR_YELLOW='\033[1;33m'
+readonly COLOR_BLUE='\033[0;34m'
+readonly COLOR_PURPLE='\033[0;35m'
+readonly COLOR_CYAN='\033[0;36m'
+readonly COLOR_NC='\033[0m'
+
+# Zeigt einen formatierten Header an
 print_header() {
-    echo -e "\n${BLUE}================================================================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}================================================================================${NC}"
+    echo -e "\n${COLOR_BLUE}================================================================================${COLOR_NC}"
+    echo -e "${COLOR_BLUE}$1${COLOR_NC}"
+    echo -e "${COLOR_BLUE}================================================================================${COLOR_NC}"
 }
 
+# Zeigt das ASCII-Logo
 print_logo() {
     cat <<'EOF'
-  ___           _        _
- |_ _|_ __  ___| |_ __ _| | __ _ _ __
-  | || '_ \/ __| __/ _` | |/ _` | '__|
-  | || | | \__ \ || (_| | | (_| | |
- |___|_| |_|___/\__\__,_|_|\__,_|_|
-
- [ Laravel + Filament Install Script ]
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║   ██╗███╗   ██╗███████╗████████╗ █████╗ ██╗      █████╗ ██████╗  ║
+║   ██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██╔══██╗██╔══██╗ ║
+║   ██║██╔██╗ ██║███████╗   ██║   ███████║██║     ███████║██████╔╝ ║
+║   ██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██╔══██║██╔══██╗ ║
+║   ██║██║ ╚████║███████║   ██║   ██║  ██║███████╗██║  ██║██║  ██║ ║
+║   ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ║
+║                                                                  ║
+║              Laravel + Filament Installation System v2.0         ║
+╚══════════════════════════════════════════════════════════════════╝
 EOF
-    echo
 }
 
+# Erfolgsnachricht
 print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
+    echo -e "${COLOR_GREEN}✓ $1${COLOR_NC}"
 }
 
+# Fehlermeldung
 print_error() {
-    echo -e "${RED}✗ $1${NC}"
+    echo -e "${COLOR_RED}✗ $1${COLOR_NC}"
 }
 
+# Warnung
 print_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
+    echo -e "${COLOR_YELLOW}⚠ $1${COLOR_NC}"
 }
 
+# Info
 print_info() {
-    echo -e "${CYAN}ℹ $1${NC}"
+    echo -e "${COLOR_CYAN}ℹ $1${COLOR_NC}"
 }
 
+# Schritt
 print_step() {
-    echo -e "\n${PURPLE}► $1${NC}"
+    echo -e "\n${COLOR_PURPLE}► $1${COLOR_NC}"
 }
 
-# Einzigartige Elemente zu Arrays hinzufügen
-append_unique() {
-    local -n array_ref=$1
-    local value=$2
-    local existing
-    for existing in "${array_ref[@]}"; do
-        if [ "$existing" = "$value" ]; then
-            return
-        fi
-    done
-    array_ref+=("$value")
-}
+#================================================================================
+# FEHLERBEHANDLUNG & UTILITIES
+#================================================================================
 
-# Fortschrittsbalken Funktion
-progress_bar() {
-    local duration=$1
-    local steps=20
-    local interval=$((duration / steps))
-    
-    echo -ne "${BLUE}["
-    for i in $(seq 1 $steps); do
-        echo -ne "="
-        sleep $interval
-    done
-    echo -e "]${NC}"
-}
-
-# Fehlerbehandlungs-Funktion
+# Behandelt Fehler und beendet das Skript
+# Usage: handle_error "Beschreibung" [exit_code]
 handle_error() {
-    print_error "Installation fehlgeschlagen bei Schritt: $1"
+    local step="$1"
+    local exit_code="${2:-$EXIT_ERROR_GENERAL}"
+    
+    print_error "Installation fehlgeschlagen bei: $step"
     print_info "Debug-Informationen werden gespeichert..."
-    echo "$(date): Fehler bei $1" >> installation_errors.log
-    exit 1
+    
+    {
+        echo "========================================"
+        echo "Fehlerzeitpunkt: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "Schritt: $step"
+        echo "Exit-Code: $exit_code"
+        echo "Arbeitsverzeichnis: $(pwd)"
+        echo "========================================"
+    } >> installation_errors.log
+    
+    exit "$exit_code"
 }
 
-# Projektnamen abfragen
+# Prüft ob ein Befehl existiert
+command_exists() {
+    command -v "$1" &> /dev/null
+}
+
+# Fügt ein Element nur hinzu, wenn es noch nicht existiert
+append_unique() {
+    local -n arr=$1
+    local val="$2"
+    for item in "${arr[@]}"; do
+        [[ "$item" == "$val" ]] && return 0
+    done
+    arr+=("$val")
+    return 0
+}
+
+# Zeigt den Fortschritt als Prozentbalken
+# Usage: show_progress current_step total_steps "Beschreibung"
+show_progress() {
+    local current="$1"
+    local total="$2"
+    local description="${3:-}"
+    local percent=$((current * 100 / total))
+    local filled=$((percent / 5))
+    local empty=$((20 - filled))
+    
+    printf "\r${COLOR_BLUE}["
+    printf "%${filled}s" | tr ' ' '='
+    printf "%${empty}s" | tr ' ' ' '
+    printf "]${COLOR_NC} %3d%% (%d/%d)" "$percent" "$current" "$total"
+    [[ -n "$description" ]] && printf " - %s" "$description"
+    printf "\n"
+}
+
+# Validiert einen Projektnamen
+validate_project_name() {
+    local name="$1"
+    [[ -z "$name" ]] && return 1
+    [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] && return 0 || return 1
+}
+
+#================================================================================
+# BENUTZERINTERAKTION
+#================================================================================
+
+# Fragt den Benutzer nach dem Projektnamen
 ask_project_name() {
     print_step "Projektnamen festlegen"
-
-    # Default-Projektnamen anzeigen und abfragen
-    echo -e "${CYAN}Bitte geben Sie den Namen für Ihr Laravel-Projekt ein:${NC}"
-    read -p "Projektname (Standard: $PROJECT_NAME): " -r INPUT_PROJECT_NAME
+    echo -e "${COLOR_CYAN}Bitte geben Sie den Namen für Ihr Laravel-Projekt ein:${COLOR_NC}"
+    read -r -p "Projektname (Standard: $DEFAULT_PROJECT_NAME): " INPUT_PROJECT_NAME || true
     
-    # Eingabe validieren und verwenden
-    if [ -n "$INPUT_PROJECT_NAME" ]; then
-        # Überprüfen ob der Name gültig ist (keine Sonderzeichen, keine Leerzeichen)
-        if [[ "$INPUT_PROJECT_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    if [[ -n "$INPUT_PROJECT_NAME" ]]; then
+        if validate_project_name "$INPUT_PROJECT_NAME"; then
             PROJECT_NAME="$INPUT_PROJECT_NAME"
-            print_success "Projektname wurde festgelegt auf: $PROJECT_NAME"
+            print_success "Projektname: $PROJECT_NAME"
         else
-            print_error "Ungültiger Projektname! Nur Buchstaben, Zahlen, Unterstrich und Bindestrich sind erlaubt."
-            print_info "Verwende Standard-Projektnamen: $PROJECT_NAME"
+            print_error "Ungültiger Projektname! Nur Buchstaben, Zahlen, _ und - erlaubt."
+            print_info "Verwende Standard: $DEFAULT_PROJECT_NAME"
+            PROJECT_NAME="$DEFAULT_PROJECT_NAME"
             sleep 2
         fi
     else
-        print_success "Verwende Standard-Projektnamen: $PROJECT_NAME"
+        PROJECT_NAME="$DEFAULT_PROJECT_NAME"
+        print_success "Verwende Standard: $PROJECT_NAME"
     fi
-    
     echo
 }
 
-# Installationsmodus abfragen
+# Fragt den Benutzer nach dem Installationsmodus
 ask_installation_mode() {
     print_step "Installationsmodus auswählen"
-    
-    echo -e "${CYAN}Möchten Sie die Installation automatisch oder manuell durchführen?${NC}"
-    echo "1) Automatisch (empfohlen) - Installiert alle empfohlenen Pakete mit Standard-Versionen"
-    echo "2) Manuell - Wählen Sie einzelne Pakete und Versionen"
+    echo -e "${COLOR_CYAN}Möchten Sie die Installation automatisch oder manuell durchführen?${COLOR_NC}"
+    echo "1) Automatisch (empfohlen) - Standard-Pakete"
+    echo "2) Manuell - Einzelne Pakete wählen"
     
     while true; do
-        read -p "Wählen Sie eine Option (1-2, Standard: 1): " -r MODE_CHOICE
-        case $MODE_CHOICE in
-            1|"" )
+        read -r -p "Wählen Sie (1-2, Standard: 1): " MODE_CHOICE || true
+        case "$MODE_CHOICE" in
+            1|"") 
                 INSTALLATION_MODE="automatic"
                 print_success "Automatische Installation ausgewählt"
                 break
@@ -299,23 +385,22 @@ ask_installation_mode() {
                 break
                 ;;
             *)
-                print_error "Ungültige Auswahl! Bitte wählen Sie 1 oder 2."
+                print_error "Ungültige Auswahl! Bitte 1 oder 2."
                 ;;
         esac
     done
     echo
 }
 
-# Git Setup abfragen (nur manueller Modus)
+# Fragt nach Git-Setup
 ask_git_setup() {
     print_step "Git Setup"
-
-    echo -e "${CYAN}Möchten Sie ein Git-Repository initialisieren?${NC}"
-    read -p "Git initialisieren? (J/n): " -n 1 -r
+    echo -e "${COLOR_CYAN}Möchten Sie ein Git-Repository initialisieren?${COLOR_NC}"
+    read -r -p "Git initialisieren? (J/n): " -n 1 || true
     echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
+    if [[ "$REPLY" =~ ^[Nn]$ ]]; then
         ENABLE_GIT=false
-        print_info "Git Setup wird übersprungen"
+        print_info "Git Setup übersprungen"
     else
         ENABLE_GIT=true
         print_success "Git Setup aktiviert"
@@ -323,116 +408,184 @@ ask_git_setup() {
     echo
 }
 
-# Mehrfachauswahl für Pakete
-ask_package_selection() {
-    print_step "Pakete auswählen"
-
-    echo -e "${CYAN}Navigation: Pfeil hoch/runter, Leertaste zum Auswählen, Enter zum Bestätigen.${NC}"
-    echo "a = alle | 0 = keine"
+# Fragt nach Datenbank-Auswahl
+ask_database_selection() {
+    print_step "Datenbank auswählen"
+    echo -e "${COLOR_CYAN}Welche Datenbank möchten Sie verwenden?${COLOR_NC}"
     echo
-
-    local -a keys=("${PACKAGE_KEYS[@]}")
-    local -a selected=()
-    local index=0
+    
     local i
-
-    for i in "${!keys[@]}"; do
-        local key="${keys[$i]}"
-        if [ "${PACKAGE_DEFAULT[$key]}" = true ]; then
-            selected[$i]=1
+    for ((i=0; i<${#DATABASE_TYPES[@]}; i++)); do
+        local db_type="${DATABASE_TYPES[$i]}"
+        local label="${DATABASE_LABEL[$db_type]}"
+        local marker=""
+        [[ "$db_type" == "$DEFAULT_DATABASE_TYPE" ]] && marker=" (Standard)"
+        echo "$((i+1))) $label$marker"
+    done
+    echo
+    
+    while true; do
+        read -r -p "Wählen Sie (1-${#DATABASE_TYPES[@]}, Standard: 1): " DB_CHOICE || true
+        
+        # Standardwert
+        [[ -z "$DB_CHOICE" ]] && DB_CHOICE=1
+        
+        # Validierung
+        if [[ "$DB_CHOICE" =~ ^[0-9]+$ ]] && [[ "$DB_CHOICE" -ge 1 ]] && [[ "$DB_CHOICE" -le ${#DATABASE_TYPES[@]} ]]; then
+            DATABASE_TYPE="${DATABASE_TYPES[$((DB_CHOICE-1))]}"
+            print_success "Datenbank: ${DATABASE_LABEL[$DATABASE_TYPE]}"
+            break
         else
-            selected[$i]=0
+            print_error "Ungültige Auswahl! Bitte 1-${#DATABASE_TYPES[@]} eingeben."
         fi
     done
+    
+    # Zusätzliche Konfiguration für externe Datenbanken
+    if [[ "$DATABASE_TYPE" != "sqlite" ]]; then
+        echo
+        print_info "Datenbank-Verbindung konfigurieren"
+        
+        # Host
+        read -r -p "Host [127.0.0.1]: " INPUT_HOST || true
+        DB_HOST="${INPUT_HOST:-127.0.0.1}"
+        
+        # Port
+        local default_port="${DATABASE_DEFAULT_PORT[$DATABASE_TYPE]}"
+        read -r -p "Port [$default_port]: " INPUT_PORT || true
+        DB_PORT="${INPUT_PORT:-$default_port}"
+        
+        # Datenbankname
+        local default_dbname=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr '-_' '_')
+        read -r -p "Datenbankname [$default_dbname]: " INPUT_DBNAME || true
+        DB_DATABASE="${INPUT_DBNAME:-$default_dbname}"
+        
+        # Benutzername
+        read -r -p "Benutzername [root]: " INPUT_USER || true
+        DB_USERNAME="${INPUT_USER:-root}"
+        
+        # Passwort
+        read -r -s -p "Passwort: " DB_PASSWORD || true
+        echo
+        
+        print_success "Datenbank-Konfiguration gespeichert"
+    fi
+    
+    echo
+}
 
-    local list_lines=${#keys[@]}
+# Fragt nach Laravel-Version
+ask_laravel_version() {
+    print_step "Laravel Version auswählen"
+    echo -e "${COLOR_CYAN}Möchten Sie die Development-Version (master) nutzen?${COLOR_NC}"
+    read -r -p "Dev-Version? (j/N): " -n 1 || true
+    echo
+    if [[ "$REPLY" =~ ^[Jj]$ ]]; then
+        USE_DEV_VERSION=true
+        print_warning "Master-Version ist NICHT SAFE"
+    else
+        USE_DEV_VERSION=false
+        print_success "Stable Version ausgewählt"
+    fi
+    echo
+}
+
+# Zeigt eine interaktive Mehrfachauswahlliste
+show_multiselect() {
+    local -n keys_ref=$1
+    local -n selected_ref=$2
+    local -n label_ref=$3
+    local -n dev_ref=$4
+    local -n default_ref=$5
+    
+    local index=0
+    local list_lines=${#keys_ref[@]}
     local use_tput=false
-    if command -v tput >/dev/null 2>&1; then
+    
+    if command_exists tput; then
         use_tput=true
         tput civis 2>/dev/null || true
         trap 'tput cnorm 2>/dev/null' EXIT
     fi
-
+    
     local input
     while true; do
-        for i in "${!keys[@]}"; do
-            local key="${keys[$i]}"
-            local label="${PACKAGE_LABEL[$key]}"
-            local dev_tag=""
-            local default_tag=""
+        local i
+        for ((i=0; i<list_lines; i++)); do
+            local key="${keys_ref[$i]}"
+            local label="${label_ref[$key]}"
             local mark="[ ]"
             local prefix="  "
-            if [ "${selected[$i]}" -eq 1 ]; then
-                mark="[x]"
-            fi
-            if [ "$i" -eq "$index" ]; then
-                prefix="> "
-            fi
-            if [ "${PACKAGE_DEV[$key]}" = true ]; then
-                dev_tag=" [dev]"
-            fi
-            if [ "${PACKAGE_DEFAULT[$key]}" = true ]; then
-                default_tag=" *"
-            fi
+            local dev_tag=""
+            local default_tag=""
+            
+            [[ "${selected_ref[$i]}" -eq 1 ]] && mark="[x]"
+            [[ $i -eq $index ]] && prefix="> "
+            [[ "${dev_ref[$key]}" == "true" ]] && dev_tag=" [dev]"
+            [[ "${default_ref[$key]}" == "true" ]] && default_tag=" *"
+            
             printf "\033[2K\r%s%s %s%s%s\n" "$prefix" "$mark" "$label" "$dev_tag" "$default_tag"
         done
-
-        IFS= read -rsn1 input || true
+        
+        IFS= read -rs -n 1 input || true
         case "$input" in
             $'\x1b')
-                IFS= read -rsn2 -t 0.1 input || true
+                IFS= read -rs -n 2 -t 0.1 input || true
                 case "$input" in
-                    '[A')
-                        if [ "$index" -gt 0 ]; then
-                            index=$((index - 1))
-                        else
-                            index=$((list_lines - 1))
-                        fi
+                    '[A') 
+                        ((index--))
+                        [[ $index -lt 0 ]] && index=$((list_lines - 1))
                         ;;
                     '[B')
-                        if [ "$index" -lt $((list_lines - 1)) ]; then
-                            index=$((index + 1))
-                        else
-                            index=0
-                        fi
+                        ((index++))
+                        [[ $index -ge $list_lines ]] && index=0
                         ;;
                 esac
                 ;;
             ' ')
-                if [ "${selected[$index]}" -eq 1 ]; then
-                    selected[$index]=0
-                else
-                    selected[$index]=1
-                fi
+                [[ "${selected_ref[$index]}" -eq 1 ]] && selected_ref[$index]=0 || selected_ref[$index]=1
                 ;;
             'a'|'A')
-                for i in "${!selected[@]}"; do
-                    selected[$i]=1
-                done
+                for ((i=0; i<${#keys_ref[@]}; i++)); do selected_ref[$i]=1; done
                 ;;
             '0')
-                for i in "${!selected[@]}"; do
-                    selected[$i]=0
-                done
+                for ((i=0; i<${#keys_ref[@]}; i++)); do selected_ref[$i]=0; done
                 ;;
             ''|$'\n')
                 break
                 ;;
         esac
-
+        
         if $use_tput; then
             tput cuu "$list_lines" 2>/dev/null || true
         else
             printf '\033[%dA' "$list_lines"
         fi
     done
-
+    
     if $use_tput; then
         tput cnorm 2>/dev/null || true
         trap - EXIT
     fi
     echo
+}
 
+# Paketauswahl
+ask_package_selection() {
+    print_step "Pakete auswählen"
+    echo -e "${COLOR_CYAN}Navigation: Pfeil hoch/runter, Leertaste zum Auswählen, Enter zum Bestätigen${COLOR_NC}"
+    echo "a = alle | 0 = keine | * = Standard"
+    echo
+    
+    local -a selected=()
+    local i
+    for ((i=0; i<${#PACKAGE_KEYS[@]}; i++)); do
+        local key="${PACKAGE_KEYS[$i]}"
+        [[ "${PACKAGE_DEFAULT[$key]}" == "true" ]] && selected[$i]=1 || selected[$i]=0
+    done
+    
+    show_multiselect PACKAGE_KEYS selected PACKAGE_LABEL PACKAGE_DEV PACKAGE_DEFAULT
+    
+    # Zurücksetzen
     INSTALL_FILAMENT=false
     INSTALL_LIVEWIRE=false
     INSTALL_PEST=false
@@ -441,187 +594,83 @@ ask_package_selection() {
     EXTRA_DEV_PACKAGES=()
     SELECTED_PACKAGE_IDS=()
     SELECTED_PACKAGE_LABELS=()
-
-    for i in "${!keys[@]}"; do
-        if [ "${selected[$i]}" -eq 1 ]; then
-            local key="${keys[$i]}"
+    
+    for ((i=0; i<${#PACKAGE_KEYS[@]}; i++)); do
+        if [[ "${selected[$i]}" -eq 1 ]]; then
+            local key="${PACKAGE_KEYS[$i]}"
             SELECTED_PACKAGE_IDS+=("$key")
             SELECTED_PACKAGE_LABELS+=("${PACKAGE_LABEL[$key]}")
             case "$key" in
-                filament)
-                    INSTALL_FILAMENT=true
-                    ;;
-                livewire)
-                    INSTALL_LIVEWIRE=true
-                    ;;
-                pest)
-                    INSTALL_PEST=true
-                    ;;
-                boost)
-                    INSTALL_BOOST=true
-                    ;;
+                filament) INSTALL_FILAMENT=true ;;
+                livewire) INSTALL_LIVEWIRE=true ;;
+                pest) INSTALL_PEST=true ;;
+                boost) INSTALL_BOOST=true ;;
                 *)
                     local pkg="${PACKAGE_COMPOSER[$key]}"
-                    if [ "${PACKAGE_DEV[$key]}" = true ]; then
-                        EXTRA_DEV_PACKAGES+=("$pkg")
+                    if [[ "${PACKAGE_DEV[$key]}" == "true" ]]; then
+                        append_unique EXTRA_DEV_PACKAGES "$pkg"
                     else
-                        EXTRA_PACKAGES+=("$pkg")
+                        append_unique EXTRA_PACKAGES "$pkg"
                     fi
                     ;;
             esac
         fi
     done
-
+    
     print_success "Paketauswahl gespeichert"
     echo
 }
 
-# Mehrfachauswahl für Features
+# Feature-Auswahl
 ask_feature_selection() {
     print_step "Features auswählen"
-
-    echo -e "${CYAN}Navigation: Pfeil hoch/runter, Leertaste zum Auswählen, Enter zum Bestätigen.${NC}"
+    echo -e "${COLOR_CYAN}Navigation: Pfeil hoch/runter, Leertaste zum Auswählen, Enter zum Bestätigen${COLOR_NC}"
     echo "a = alle | 0 = keine"
     echo
-
-    local -a keys=("${FEATURE_KEYS[@]}")
+    
     local -a selected=()
-    local index=0
     local i
-
-    for i in "${!keys[@]}"; do
-        local key="${keys[$i]}"
-        if [ "${FEATURE_DEFAULT[$key]}" = true ]; then
-            selected[$i]=1
-        else
-            selected[$i]=0
-        fi
+    for ((i=0; i<${#FEATURE_KEYS[@]}; i++)); do
+        local key="${FEATURE_KEYS[$i]}"
+        [[ "${FEATURE_DEFAULT[$key]}" == "true" ]] && selected[$i]=1 || selected[$i]=0
     done
-
-    local list_lines=${#keys[@]}
-    local use_tput=false
-    if command -v tput >/dev/null 2>&1; then
-        use_tput=true
-        tput civis 2>/dev/null || true
-        trap 'tput cnorm 2>/dev/null' EXIT
-    fi
-
-    local input
-    while true; do
-        for i in "${!keys[@]}"; do
-            local key="${keys[$i]}"
-            local label="${FEATURE_LABEL[$key]}"
-            local dev_tag=""
-            local default_tag=""
-            local mark="[ ]"
-            local prefix="  "
-            if [ "${selected[$i]}" -eq 1 ]; then
-                mark="[x]"
-            fi
-            if [ "$i" -eq "$index" ]; then
-                prefix="> "
-            fi
-            if [ "${FEATURE_DEV[$key]}" = true ]; then
-                dev_tag=" [dev]"
-            fi
-            if [ "${FEATURE_DEFAULT[$key]}" = true ]; then
-                default_tag=" *"
-            fi
-            printf "\033[2K\r%s%s %s%s%s\n" "$prefix" "$mark" "$label" "$dev_tag" "$default_tag"
-        done
-
-        IFS= read -rsn1 input || true
-        case "$input" in
-            $'\x1b')
-                IFS= read -rsn2 -t 0.1 input || true
-                case "$input" in
-                    '[A')
-                        if [ "$index" -gt 0 ]; then
-                            index=$((index - 1))
-                        else
-                            index=$((list_lines - 1))
-                        fi
-                        ;;
-                    '[B')
-                        if [ "$index" -lt $((list_lines - 1)) ]; then
-                            index=$((index + 1))
-                        else
-                            index=0
-                        fi
-                        ;;
-                esac
-                ;;
-            ' ')
-                if [ "${selected[$index]}" -eq 1 ]; then
-                    selected[$index]=0
-                else
-                    selected[$index]=1
-                fi
-                ;;
-            'a'|'A')
-                for i in "${!selected[@]}"; do
-                    selected[$i]=1
-                done
-                ;;
-            '0')
-                for i in "${!selected[@]}"; do
-                    selected[$i]=0
-                done
-                ;;
-            ''|$'\n')
-                break
-                ;;
-        esac
-
-        if $use_tput; then
-            tput cuu "$list_lines" 2>/dev/null || true
-        else
-            printf '\033[%dA' "$list_lines"
-        fi
+    
+    show_multiselect FEATURE_KEYS selected FEATURE_LABEL FEATURE_DEV FEATURE_DEFAULT
+    
+    # Konfliktprüfung Breeze vs Jetstream
+    local breeze_idx=-1
+    local jetstream_idx=-1
+    for ((i=0; i<${#FEATURE_KEYS[@]}; i++)); do
+        [[ "${FEATURE_KEYS[$i]}" == "breeze" ]] && breeze_idx=$i
+        [[ "${FEATURE_KEYS[$i]}" == "jetstream" ]] && jetstream_idx=$i
     done
-
-    if $use_tput; then
-        tput cnorm 2>/dev/null || true
-        trap - EXIT
-    fi
-    echo
-
-    local breeze_index=-1
-    local jetstream_index=-1
-    for i in "${!keys[@]}"; do
-        if [ "${keys[$i]}" = "breeze" ]; then
-            breeze_index=$i
-        elif [ "${keys[$i]}" = "jetstream" ]; then
-            jetstream_index=$i
-        fi
-    done
-    if [ "$breeze_index" -ge 0 ] && [ "$jetstream_index" -ge 0 ]; then
-        if [ "${selected[$breeze_index]}" -eq 1 ] && [ "${selected[$jetstream_index]}" -eq 1 ]; then
-            print_warning "Breeze und Jetstream wurden ausgewählt. Jetstream hat Vorrang."
-            selected[$breeze_index]=0
+    
+    if [[ $breeze_idx -ge 0 && $jetstream_idx -ge 0 ]]; then
+        if [[ "${selected[$breeze_idx]}" -eq 1 && "${selected[$jetstream_idx]}" -eq 1 ]]; then
+            print_warning "Breeze und Jetstream ausgewählt. Jetstream hat Vorrang."
+            selected[$breeze_idx]=0
         fi
     fi
-
-    JETSTREAM_STACK="livewire"
-    if [ "$jetstream_index" -ge 0 ] && [ "${selected[$jetstream_index]}" -eq 1 ]; then
-        if [ "$INSTALL_FILAMENT" = true ] || [ "$INSTALL_LIVEWIRE" = true ]; then
+    
+    # Jetstream Stack anpassen
+    if [[ $jetstream_idx -ge 0 && "${selected[$jetstream_idx]}" -eq 1 ]]; then
+        if [[ "$INSTALL_FILAMENT" == "true" || "$INSTALL_LIVEWIRE" == "true" ]]; then
             JETSTREAM_STACK="inertia"
-            print_warning "Jetstream Livewire-Stack ist mit Filament/Livewire 4 inkompatibel. Verwende Inertia."
+            print_warning "Jetstream Stack auf Inertia umgeschaltet (Livewire 4/Filament Kompatibilität)"
         fi
     fi
-
+    
     SELECTED_FEATURE_IDS=()
     SELECTED_FEATURE_LABELS=()
-
-    for i in "${!keys[@]}"; do
-        if [ "${selected[$i]}" -eq 1 ]; then
-            local key="${keys[$i]}"
+    for ((i=0; i<${#FEATURE_KEYS[@]}; i++)); do
+        if [[ "${selected[$i]}" -eq 1 ]]; then
+            local key="${FEATURE_KEYS[$i]}"
             SELECTED_FEATURE_IDS+=("$key")
             SELECTED_FEATURE_LABELS+=("${FEATURE_LABEL[$key]}")
             local pkgs="${FEATURE_COMPOSER[$key]}"
             local pkg
             for pkg in $pkgs; do
-                if [ "${FEATURE_DEV[$key]}" = true ]; then
+                if [[ "${FEATURE_DEV[$key]}" == "true" ]]; then
                     append_unique EXTRA_DEV_PACKAGES "$pkg"
                 else
                     append_unique EXTRA_PACKAGES "$pkg"
@@ -629,952 +678,770 @@ ask_feature_selection() {
             done
         fi
     done
-
+    
     print_success "Feature-Auswahl gespeichert"
     echo
 }
 
-# Manuelle Paketauswahl
+# Manuelle Installation
 manual_installation() {
-    print_step "Manuelle Paketauswahl und Konfiguration"
-
-    print_step "Laravel Version auswählen"
-    echo -e "${CYAN}Möchten Sie die Development-Version (master) nutzen?${NC}"
-    read -p "Dev-Version nutzen? (j/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Jj]$ ]]; then
-        USE_DEV_VERSION=true
-        print_warning "Master-Version ist NICHT SAFE"
-    else
-        USE_DEV_VERSION=false
-        print_success "Stable Version (latest) ausgewählt"
-    fi
-    echo
-    
+    print_step "Manuelle Konfiguration"
+    ask_laravel_version
     ask_package_selection
     ask_feature_selection
+    ask_database_selection
     ask_git_setup
 
-    # Zusammenfassung der Auswahl
-    print_step "Zusammenfassung Ihrer Auswahl:"
-    echo -e "${CYAN}Installationsmodus:${NC} Manuell"
-    if [ "$USE_DEV_VERSION" = true ]; then
-        echo -e "${CYAN}Laravel Version:${NC} master (NICHT SAFE)"
-    else
-        echo -e "${CYAN}Laravel Version:${NC} latest"
+    # Zusammenfassung
+    print_step "Zusammenfassung"
+    echo -e "${COLOR_CYAN}Modus:${COLOR_NC} Manuell"
+    [[ "$USE_DEV_VERSION" == "true" ]] && echo -e "${COLOR_CYAN}Laravel:${COLOR_NC} master" || echo -e "${COLOR_CYAN}Laravel:${COLOR_NC} latest"
+    [[ ${#SELECTED_PACKAGE_LABELS[@]} -eq 0 ]] && echo -e "${COLOR_CYAN}Pakete:${COLOR_NC} Keine" || echo -e "${COLOR_CYAN}Pakete:${COLOR_NC} ${SELECTED_PACKAGE_LABELS[*]}"
+    [[ ${#SELECTED_FEATURE_LABELS[@]} -eq 0 ]] && echo -e "${COLOR_CYAN}Features:${COLOR_NC} Keine" || echo -e "${COLOR_CYAN}Features:${COLOR_NC} ${SELECTED_FEATURE_LABELS[*]}"
+    echo -e "${COLOR_CYAN}Datenbank:${COLOR_NC} ${DATABASE_LABEL[$DATABASE_TYPE]}"
+    if [[ "$DATABASE_TYPE" != "sqlite" ]]; then
+        echo -e "${COLOR_CYAN}DB-Verbindung:${COLOR_NC} $DB_USERNAME@$DB_HOST:$DB_PORT/$DB_DATABASE"
     fi
-    if [ "${#SELECTED_PACKAGE_LABELS[@]}" -eq 0 ]; then
-        echo -e "${CYAN}Pakete:${NC} Keine"
-    else
-        local IFS=', '
-        echo -e "${CYAN}Pakete:${NC} ${SELECTED_PACKAGE_LABELS[*]}"
-    fi
-    if [ "${#SELECTED_FEATURE_LABELS[@]}" -eq 0 ]; then
-        echo -e "${CYAN}Features:${NC} Keine"
-    else
-        local IFS=', '
-        echo -e "${CYAN}Features:${NC} ${SELECTED_FEATURE_LABELS[*]}"
-    fi
-    echo -e "${CYAN}Git:${NC} $([ "$ENABLE_GIT" = true ] && echo "Ja" || echo "Nein")"
+    echo -e "${COLOR_CYAN}Git:${COLOR_NC} $([[ "$ENABLE_GIT" == "true" ]] && echo "Ja" || echo "Nein")"
     echo
     
-    read -p "Möchten Sie mit dieser Konfiguration fortfahren? (J/n): " -n 1 -r
+    read -r -p "Fortfahren? (J/n): " -n 1 || true
     echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
-        print_info "Installation wird abgebrochen."
-        exit 0
+    if [[ "$REPLY" =~ ^[Nn]$ ]]; then
+        print_info "Installation abgebrochen."
+        exit $EXIT_SUCCESS
     fi
-    
     print_success "Konfiguration bestätigt"
     echo
 }
 
-# PHP-Version auswählen
-ask_php_version() {
-    print_step "PHP-Version auswählen"
-    
-    echo -e "${CYAN}Welche PHP-Version möchten Sie installieren?${NC}"
-    echo "1) PHP 8.3 (stabile Version)"
-    echo "2) PHP 8.4 (stabile Version)"
-    echo "3) PHP 8.5 (neueste stabile Version) *empfohlen"
-    
-    while true; do
-        read -p "Wählen Sie eine Option (1-3, Standard: 2): " -r PHP_CHOICE
-        case $PHP_CHOICE in
-            1)
-                PHP_VERSION="8.3"
-                PHP_INSTALL_URL="https://php.new/install/linux/8.3"
-                print_success "PHP 8.3 ausgewählt"
-                break
-                ;;
-            2|"" )
-                PHP_VERSION="8.4"
-                PHP_INSTALL_URL="https://php.new/install/linux/8.4"
-                print_success "PHP 8.4 ausgewählt"
-                break
-                ;;
-            3)
-                PHP_VERSION="8.5"
-                PHP_INSTALL_URL="https://php.new/install/linux/8.5"
-                print_success "PHP 8.5 ausgewählt"
-                break
-                ;;
-            *)
-                print_error "Ungültige Auswahl! Bitte wählen Sie 1, 2 oder 3."
-                ;;
-        esac
-    done
-    echo
-}
+#================================================================================
+# SYSTEMVORAUSSETZUNGEN
+#================================================================================
 
-# Systemvoraussetzungen prüfen
 check_prerequisites() {
-    print_step "Systemvoraussetzungen werden überprüft..."
-
-    if [ ! -w "." ]; then
-        print_error "Kein Schreibzugriff im aktuellen Verzeichnis: $(pwd)"
-        exit 1
-    fi
-    print_success "Schreibzugriff im Projektverzeichnis vorhanden"
+    print_step "Systemvoraussetzungen prüfen"
     
-    # PHP-Version prüfen (>= 8.1 erforderlich)
-    if command -v php &> /dev/null; then
-        PHP_VERSION=$(php -r "echo PHP_VERSION;")
-        PHP_MAJOR=$(echo $PHP_VERSION | cut -d. -f1)
-        PHP_MINOR=$(echo $PHP_VERSION | cut -d. -f2)
+    # Schreibzugriff
+    if [[ ! -w "." ]]; then
+        print_error "Kein Schreibzugriff: $(pwd)"
+        exit $EXIT_ERROR_PERMISSIONS
+    fi
+    print_success "Schreibzugriff OK"
+    
+    # PHP
+    if command_exists php; then
+        local php_version
+        php_version=$(php -r "echo PHP_VERSION;")
+        local php_major
+        php_major=$(echo "$php_version" | cut -d. -f1)
+        local php_minor
+        php_minor=$(echo "$php_version" | cut -d. -f2)
         
-        if [ "$PHP_MAJOR" -ge 8 ] && [ "$PHP_MINOR" -ge 1 ]; then
-            print_success "PHP Version $PHP_VERSION gefunden (Minimum: 8.1)"
+        if [[ "$php_major" -ge 8 && "$php_minor" -ge 1 ]]; then
+            print_success "PHP $php_version (>= 8.1)"
         else
-            print_error "PHP Version $PHP_VERSION ist zu alt. Minimum PHP 8.1 erforderlich."
-            exit 1
+            print_error "PHP $php_version zu alt. Minimum 8.1 erforderlich."
+            exit $EXIT_ERROR_PREREQ
         fi
     else
-        print_error "PHP wurde nicht gefunden."
-        ask_php_version
-        print_info "Installiere PHP $PHP_VERSION..."
-        /bin/bash -c "$(curl -fsSL $PHP_INSTALL_URL)"
-        
-        # Nach der Installation prüfen ob PHP verfügbar ist
-        if command -v php &> /dev/null; then
-            PHP_VERSION=$(php -r "echo PHP_VERSION;")
-            print_success "PHP Version $PHP_VERSION wurde installiert"
+        print_error "PHP nicht gefunden."
+        exit $EXIT_ERROR_PREREQ
+    fi
+    
+    # Composer
+    if command_exists composer; then
+        local cv
+        cv=$(composer --version | awk '{print $3}')
+        print_success "Composer $cv"
+        [[ "${cv%%.*}" -lt 2 ]] && print_warning "Composer 2.x empfohlen"
+    else
+        print_error "Composer nicht gefunden."
+        exit $EXIT_ERROR_PREREQ
+    fi
+    
+    # Node.js
+    if command_exists node; then
+        local nv
+        nv=$(node --version)
+        print_success "Node.js $nv"
+        local nv_major
+        nv_major=$(echo "$nv" | sed 's/^v//' | cut -d. -f1)
+        [[ "$nv_major" -lt 18 ]] && print_warning "Node.js 18+ empfohlen"
+    else
+        print_error "Node.js nicht gefunden."
+        exit $EXIT_ERROR_PREREQ
+    fi
+    
+    # NPM
+    if command_exists npm; then
+        print_success "NPM $(npm --version)"
+    else
+        print_error "NPM nicht gefunden."
+        exit $EXIT_ERROR_PREREQ
+    fi
+    
+    # Weitere Tools
+    command_exists curl && print_success "curl OK" || { print_error "curl fehlt"; exit $EXIT_ERROR_PREREQ; }
+    command_exists unzip && print_success "unzip OK" || print_warning "unzip fehlt"
+    
+    # Git
+    if [[ "$ENABLE_GIT" == "true" ]]; then
+        if command_exists git; then
+            print_success "Git $(git --version | awk '{print $3}')"
         else
-            print_error "PHP Installation fehlgeschlagen. Bitte installieren Sie manuell PHP 8.1 oder höher."
-            exit 1
+            print_error "Git nicht gefunden."
+            exit $EXIT_ERROR_PREREQ
         fi
     fi
     
-    # Composer prüfen
-    if command -v composer &> /dev/null; then
-        COMPOSER_VERSION=$(composer --version | cut -d' ' -f3)
-        print_success "Composer Version $COMPOSER_VERSION gefunden"
-        COMPOSER_MAJOR=${COMPOSER_VERSION%%.*}
-        if [ "$COMPOSER_MAJOR" -lt 2 ]; then
-            print_warning "Composer 2.x wird empfohlen"
-        fi
-    else
-        print_error "Composer wurde nicht gefunden. Bitte installieren Sie Composer."
-        exit 1
-    fi
-    
-    # Node.js prüfen
-    if command -v node &> /dev/null; then
-        NODE_VERSION=$(node --version)
-        print_success "Node.js Version $NODE_VERSION gefunden"
-        NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/^v//' | cut -d. -f1)
-        if [ "$NODE_MAJOR" -lt 18 ]; then
-            print_warning "Node.js 18+ wird empfohlen"
-        fi
-    else
-        print_error "Node.js wurde nicht gefunden. Bitte installieren Sie Node.js."
-        exit 1
-    fi
-    
-    # NPM prüfen
-    if command -v npm &> /dev/null; then
-        NPM_VERSION=$(npm --version)
-        print_success "NPM Version $NPM_VERSION gefunden"
-        NPM_MAJOR=${NPM_VERSION%%.*}
-        if [ "$NPM_MAJOR" -lt 9 ]; then
-            print_warning "NPM 9+ wird empfohlen"
-        fi
-    else
-        print_error "NPM wurde nicht gefunden. Bitte installieren Sie NPM."
-        exit 1
-    fi
-
-    if command -v curl &> /dev/null; then
-        CURL_VERSION=$(curl --version | head -n 1 | awk '{print $2}')
-        print_success "curl $CURL_VERSION gefunden"
-    else
-        print_error "curl wurde nicht gefunden. Bitte installieren Sie curl."
-        exit 1
-    fi
-
-    if command -v unzip &> /dev/null; then
-        print_success "unzip gefunden"
-    else
-        print_warning "unzip wurde nicht gefunden (kann Composer beeinträchtigen)"
-    fi
-
-    if [ "$ENABLE_GIT" = true ]; then
-        if command -v git &> /dev/null; then
-            GIT_VERSION=$(git --version | awk '{print $3}')
-            print_success "Git Version $GIT_VERSION gefunden"
-        else
-            print_error "Git wurde nicht gefunden, ist aber aktiviert."
-            exit 1
-        fi
-    fi
-    
-    # PHP-Erweiterungen prüfen
-    print_info "Überprüfe PHP-Erweiterungen..."
-    REQUIRED_EXTENSIONS=("mbstring" "xml" "ctype" "iconv" "intl" "pdo" "tokenizer" "bcmath" "json" "fileinfo" "pdo_sqlite" "openssl" "zip")
-    
+    # PHP Extensions
+    print_info "Prüfe PHP-Extensions..."
+    local ext
     for ext in "${REQUIRED_EXTENSIONS[@]}"; do
         if php -m | grep -q "$ext"; then
-            print_success "PHP-Erweiterung '$ext' ist verfügbar"
+            print_success "PHP-Extension '$ext' OK"
         else
-            print_warning "PHP-Erweiterung '$ext' fehlt - könnte Probleme verursachen"
+            print_warning "PHP-Extension '$ext' fehlt"
         fi
     done
 }
 
-# Laravel Installer installieren/aktualisieren
-install_laravel_installer() {
-    print_step "Laravel Installer wird installiert/aktualisiert..."
+#================================================================================
+# LARAVEL INSTALLATION
+#================================================================================
+
+install_or_update_laravel_installer() {
+    print_step "Laravel Installer"
     
-    # Prüfen ob Laravel Installer bereits existiert
-    if command -v laravel &> /dev/null; then
-        print_info "Laravel Installer gefunden, wird aktualisiert..."
-        composer global update laravel/installer || handle_error "Laravel Installer Update"
+    if command_exists laravel; then
+        print_info "Laravel Installer wird aktualisiert..."
+        composer global update laravel/installer --no-interaction >/dev/null 2>&1 || handle_error "Laravel Installer Update" $EXIT_ERROR_LARAVEL
         print_success "Laravel Installer aktualisiert"
     else
         print_info "Laravel Installer wird installiert..."
-        composer global require laravel/installer || handle_error "Laravel Installer Installation"
+        composer global require laravel/installer --no-interaction >/dev/null 2>&1 || handle_error "Laravel Installer Installation" $EXIT_ERROR_LARAVEL
         print_success "Laravel Installer installiert"
         
-        # Sicherstellen dass ~/.composer/vendor/bin im PATH ist
-        if ! echo $PATH | grep -q "$HOME/.composer/vendor/bin"; then
-            print_warning "Füge ~/.composer/vendor/bin zum PATH hinzu..."
-            echo 'export PATH="$HOME/.composer/vendor/bin:$PATH"' >> ~/.bashrc
-            export PATH="$HOME/.composer/vendor/bin:$PATH"
+        local cbp="$HOME/.composer/vendor/bin"
+        if [[ -d "$cbp" ]] && [[ ":$PATH:" != *":$cbp:"* ]]; then
+            echo "export PATH=\"$cbp:\$PATH\"" >> ~/.bashrc
+            export PATH="$cbp:$PATH"
         fi
     fi
 }
 
-# Neues Laravel-Projekt erstellen
 create_laravel_project() {
-    print_step "Laravel-Projekt '$PROJECT_NAME' wird erstellt..."
-
+    print_step "Laravel-Projekt '$PROJECT_NAME' erstellen"
+    
     local project_dir="$PROJECT_NAME"
     local project_dir_lower
     local project_dir_slug
     project_dir_lower=$(printf '%s' "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')
     project_dir_slug=$(printf '%s' "$project_dir_lower" | tr '_' '-')
     
-    # Prüfen ob Projekt bereits existiert
-    if [ -d "$project_dir" ] || [ -d "$project_dir_lower" ] || [ -d "$project_dir_slug" ]; then
+    # Prüfen ob existiert
+    if [[ -d "$project_dir" ]] || [[ -d "$project_dir_lower" ]] || [[ -d "$project_dir_slug" ]]; then
         local existing_dir="$project_dir"
-        if [ -d "$project_dir_lower" ]; then
-            existing_dir="$project_dir_lower"
-        elif [ -d "$project_dir_slug" ]; then
-            existing_dir="$project_dir_slug"
-        fi
+        [[ -d "$project_dir_lower" ]] && existing_dir="$project_dir_lower"
+        [[ -d "$project_dir_slug" ]] && existing_dir="$project_dir_slug"
+        
         print_error "Verzeichnis '$existing_dir' existiert bereits!"
-        read -p "Möchten Sie es löschen und neu erstellen? (j/N): " -n 1 -r
+        read -r -p "Löschen? (j/N): " -n 1 || true
         echo
-        if [[ $REPLY =~ ^[Jj]$ ]]; then
+        if [[ "$REPLY" =~ ^[Jj]$ ]]; then
             rm -rf "$existing_dir"
-            print_success "Existierendes Projekt gelöscht"
+            print_success "Gelöscht"
         else
-            print_error "Installation abgebrochen"
-            exit 1
+            print_error "Abgebrochen"
+            exit $EXIT_ERROR_GENERAL
         fi
     fi
     
-    # Laravel-Projekt erstellen mit bedingten Parametern
-    print_info "Erstelle Laravel-Projekt mit Installer..."
+    # Laravel Flags
+    local laravel_flags="--npm --no-interaction"
+    [[ "$INSTALL_PEST" == "true" || "$INSTALLATION_MODE" == "automatic" ]] && laravel_flags="$laravel_flags --pest"
+    [[ "$INSTALL_BOOST" == "true" || "$INSTALLATION_MODE" == "automatic" ]] && laravel_flags="$laravel_flags --boost"
+    [[ "$USE_DEV_VERSION" == "true" ]] && laravel_flags="$laravel_flags --dev"
+    
+    print_info "Laravel Flags: $laravel_flags"
     local laravel_log
-    laravel_log=$(mktemp /tmp/laravel_new.XXXXXX.log)
+    laravel_log=$(mktemp)
     
-    # Flags für laravel new Befehl basierend auf Auswahl zusammenbauen
-    LARAVEL_FLAGS="--npm --no-interaction"
-    
-    if [ "$INSTALL_PEST" = true ] || [ "$INSTALLATION_MODE" = "automatic" ]; then
-        LARAVEL_FLAGS="$LARAVEL_FLAGS --pest"
+    if ! laravel new "$PROJECT_NAME" $laravel_flags >/dev/null 2>&1; then
+        handle_error "Laravel Projekt Erstellung" $EXIT_ERROR_LARAVEL
     fi
     
-    if [ "$INSTALL_BOOST" = true ] || [ "$INSTALLATION_MODE" = "automatic" ]; then
-        LARAVEL_FLAGS="$LARAVEL_FLAGS --boost"
-    fi
-
-    if [ "$USE_DEV_VERSION" = true ]; then
-        print_warning "Master-Version ist NICHT SAFE"
-        LARAVEL_FLAGS="$LARAVEL_FLAGS --dev"
-    fi
-    
-    echo -e "${CYAN}Laravel wird erstellt mit folgenden Flags: $LARAVEL_FLAGS${NC}"
-    laravel new "$PROJECT_NAME" $LARAVEL_FLAGS 2>&1 | tee "$laravel_log"
-    local laravel_status=${PIPESTATUS[0]}
-    if [ "$laravel_status" -ne 0 ]; then
-        tail -n 50 "$laravel_log" >> installation_errors.log
-        handle_error "Laravel Projekt Erstellung"
-    fi
-    
-    if [ -d "$project_dir" ]; then
+    # Verzeichnis finden
+    if [[ -d "$project_dir" ]]; then
         :
-    elif [ -d "$project_dir_lower" ]; then
-        print_warning "Projektverzeichnis wurde als '$project_dir_lower' erstellt"
+    elif [[ -d "$project_dir_lower" ]]; then
         project_dir="$project_dir_lower"
-    elif [ -d "$project_dir_slug" ]; then
-        print_warning "Projektverzeichnis wurde als '$project_dir_slug' erstellt"
+        print_warning "Projekt als '$project_dir' erstellt"
+    elif [[ -d "$project_dir_slug" ]]; then
         project_dir="$project_dir_slug"
+        print_warning "Projekt als '$project_dir' erstellt"
     else
         tail -n 50 "$laravel_log" >> installation_errors.log
-        handle_error "Laravel Projekt Erstellung (Verzeichnis nicht gefunden)"
+        rm -f "$laravel_log"
+        handle_error "Projektverzeichnis nicht gefunden" $EXIT_ERROR_LARAVEL
     fi
-    rm -f "$laravel_log"
     
+    rm -f "$laravel_log"
     print_success "Laravel-Projekt '$project_dir' erstellt"
     
-    # In Projektverzeichnis wechseln
-    cd "$project_dir"
-    print_success "Wechsle in Projektverzeichnis: $(pwd)"
+    cd "$project_dir" || exit $EXIT_ERROR_GENERAL
+    print_success "Wechsle in: $(pwd)"
 }
 
-# Composer Dependencies installieren und aktualisieren
-install_dependencies() {
-    print_step "Composer Dependencies werden installiert..."
+#================================================================================
+# PAKETE INSTALLIEREN
+#================================================================================
 
-    if [ "$INSTALL_FILAMENT" = true ] && [ "$INSTALL_LIVEWIRE" != true ]; then
-        INSTALL_LIVEWIRE=true
-        print_info "Livewire wird für Filament benötigt und automatisch aktiviert"
-    fi
-
-    # Livewire installieren (falls ausgewählt)
-    if [ "$INSTALL_LIVEWIRE" = true ]; then
-        print_info "Installiere Livewire $LIVEWIRE_VERSION..."
-        composer require livewire/livewire:"$LIVEWIRE_VERSION" --no-interaction || handle_error "Livewire Installation"
-        print_success "Livewire installiert"
-    else
-        print_info "Livewire wird übersprungen (nicht ausgewählt)"
-    fi
-
-    # Filament installieren (falls ausgewählt)
-    if [ "$INSTALL_FILAMENT" = true ]; then
-        print_info "Installiere Filament $FILAMENT_VERSION..."
-        composer require filament/filament:"$FILAMENT_VERSION" --no-interaction || handle_error "Filament Installation"
-        print_success "Filament installiert"
-    else
-        print_info "Filament wird übersprungen (nicht ausgewählt)"
-    fi
+install_livewire() {
+    [[ "$INSTALL_LIVEWIRE" != "true" ]] && { print_info "Livewire übersprungen"; return 0; }
     
-    # Zusätzliche Laravel Packages installieren
-    if [ "${#EXTRA_PACKAGES[@]}" -gt 0 ]; then
-        print_info "Installiere zusätzliche Laravel-Packages..."
-        composer require "${EXTRA_PACKAGES[@]}" --no-interaction || handle_error "Additional Packages Installation"
-        print_success "Zusätzliche Packages installiert"
-    else
-        print_info "Keine zusätzlichen Laravel-Packages ausgewählt"
-    fi
-    
-    # Development Packages installieren
-    if [ "${#EXTRA_DEV_PACKAGES[@]}" -gt 0 ]; then
-        print_info "Installiere Development Packages..."
-        composer require --dev "${EXTRA_DEV_PACKAGES[@]}" --no-interaction || handle_error "Development Packages Installation"
-        print_success "Development Packages installiert"
-    else
-        print_info "Keine Development Packages ausgewählt"
-    fi
-    
-    print_success "Alle Dependencies installiert"
+    print_step "Livewire Installation"
+    print_info "Installiere Livewire $LIVEWIRE_VERSION..."
+    composer require livewire/livewire:"$LIVEWIRE_VERSION" --no-interaction >/dev/null 2>&1 || handle_error "Livewire Installation" $EXIT_ERROR_LARAVEL
+    php artisan livewire:publish --config >/dev/null 2>&1 || handle_error "Livewire Konfiguration" $EXIT_ERROR_LARAVEL
+    print_success "Livewire installiert"
 }
 
-# Features installieren und konfigurieren
+install_filament() {
+    [[ "$INSTALL_FILAMENT" != "true" ]] && { print_info "Filament übersprungen"; return 0; }
+    
+    print_step "Filament Installation"
+    print_info "Installiere Filament $FILAMENT_VERSION..."
+    composer require filament/filament:"$FILAMENT_VERSION" --no-interaction >/dev/null 2>&1 || handle_error "Filament Installation" $EXIT_ERROR_LARAVEL
+    php artisan filament:install --panels --no-interaction >/dev/null 2>&1 || handle_error "Filament Panel Installation" $EXIT_ERROR_LARAVEL
+    php artisan vendor:publish --tag=filament-config --force >/dev/null 2>&1 || handle_error "Filament Konfiguration" $EXIT_ERROR_LARAVEL
+    print_success "Filament installiert"
+}
+
 install_features() {
-    if [ "${#SELECTED_FEATURE_IDS[@]}" -eq 0 ]; then
-        print_info "Keine Features ausgewählt"
-        return
-    fi
-
-    print_step "Features werden eingerichtet..."
-
+    [[ ${#SELECTED_FEATURE_IDS[@]} -eq 0 ]] && { print_info "Keine Features ausgewählt"; return 0; }
+    
+    print_step "Feature-Installation"
     local key
     for key in "${SELECTED_FEATURE_IDS[@]}"; do
         case "$key" in
             breeze)
                 print_info "Installiere Laravel Breeze..."
-                php artisan breeze:install --stack=blade --no-interaction || handle_error "Breeze Installation"
-                print_success "Laravel Breeze installiert"
+                php artisan breeze:install --stack=blade --no-interaction >/dev/null 2>&1 || handle_error "Breeze Installation" $EXIT_ERROR_LARAVEL
+                print_success "Breeze installiert"
                 ;;
             jetstream)
                 print_info "Installiere Laravel Jetstream..."
-                php artisan jetstream:install "$JETSTREAM_STACK" --no-interaction || handle_error "Jetstream Installation"
-                print_success "Laravel Jetstream installiert"
+                php artisan jetstream:install "$JETSTREAM_STACK" --no-interaction >/dev/null 2>&1 || handle_error "Jetstream Installation" $EXIT_ERROR_LARAVEL
+                print_success "Jetstream installiert (Stack: $JETSTREAM_STACK)"
                 ;;
             redis)
-                print_info "Redis Support hinzugefügt (predis)"
+                print_success "Redis Support hinzugefügt"
                 ;;
             scout-meilisearch)
-                print_info "Scout Konfiguration wird veröffentlicht..."
-                if php artisan vendor:publish --provider="Laravel\\Scout\\ScoutServiceProvider" --force >/dev/null 2>&1; then
-                    print_success "Scout Konfiguration veröffentlicht"
-                else
-                    print_warning "Scout Konfiguration konnte nicht veröffentlicht werden"
-                fi
+                print_info "Scout Konfiguration..."
+                php artisan vendor:publish --provider="Laravel\\Scout\\ScoutServiceProvider" --force >/dev/null 2>&1 && print_success "Scout OK" || print_warning "Scout fehlgeschlagen"
                 ;;
             horizon)
-                print_info "Installiere Horizon Setup..."
-                php artisan horizon:install || handle_error "Horizon Installation"
+                print_info "Installiere Horizon..."
+                php artisan horizon:install >/dev/null 2>&1 || handle_error "Horizon Installation" $EXIT_ERROR_LARAVEL
                 print_success "Horizon konfiguriert"
-                ;;
-            *)
-                print_warning "Unbekanntes Feature: $key"
                 ;;
         esac
     done
 }
 
-# Filament installieren und konfigurieren
-install_filament() {
-    if [ "$INSTALL_FILAMENT" = true ]; then
-        print_step "Filament wird installiert und konfiguriert..."
-        
-        # Filament Panel installieren
-        php artisan filament:install --panels --no-interaction || handle_error "Filament Panel Installation"
-        print_success "Filament Panel installiert"
-        
-        # Filament Konfiguration veröffentlichen
-        php artisan vendor:publish --tag=filament-config --force || handle_error "Filament Konfiguration"
-        print_success "Filament Konfiguration veröffentlicht"
+install_extra_packages() {
+    print_step "Zusätzliche Pakete"
+    
+    if [[ ${#EXTRA_PACKAGES[@]} -gt 0 ]]; then
+        print_info "Installiere ${#EXTRA_PACKAGES[@]} Pakete..."
+        composer require "${EXTRA_PACKAGES[@]}" --no-interaction >/dev/null 2>&1 || handle_error "Paket-Installation" $EXIT_ERROR_LARAVEL
+        print_success "Pakete installiert"
     else
-        print_info "Filament Installation übersprungen (nicht ausgewählt)"
+        print_info "Keine zusätzlichen Pakete"
     fi
-}
-
-# Livewire installieren und konfigurieren
-install_livewire() {
-    if [ "$INSTALL_LIVEWIRE" = true ]; then
-        print_step "Livewire wird installiert und konfiguriert..."
-        
-        # Livewire publish
-        php artisan livewire:publish --config || handle_error "Livewire Konfiguration"
-        print_success "Livewire konfiguriert"
+    
+    if [[ ${#EXTRA_DEV_PACKAGES[@]} -gt 0 ]]; then
+        print_info "Installiere ${#EXTRA_DEV_PACKAGES[@]} Dev-Pakete..."
+        composer require --dev "${EXTRA_DEV_PACKAGES[@]}" --no-interaction >/dev/null 2>&1 || handle_error "Dev-Paket Installation" $EXIT_ERROR_LARAVEL
+        print_success "Dev-Pakete installiert"
     else
-        print_info "Livewire Installation übersprungen (nicht ausgewählt)"
+        print_info "Keine Dev-Pakete"
     fi
 }
 
-# Frontend-Abhängigkeiten prüfen und anpassen
-fix_frontend_dependencies() {
-    print_step "Frontend-Abhängigkeiten prüfen"
-
-    if [ ! -f "package.json" ]; then
-        print_info "package.json nicht gefunden"
-        return
-    fi
-    if ! command -v node &> /dev/null; then
-        print_warning "Node.js nicht gefunden, überspringe Frontend-Check"
-        return
-    fi
-
-    local result
-    result=$(node - <<'NODE'
-const fs = require('fs');
-const path = 'package.json';
-
-const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
-const deps = pkg.dependencies || {};
-const dev = pkg.devDependencies || {};
-
-const viteKey = dev.vite ? 'dev' : (deps.vite ? 'prod' : null);
-const pluginVue = dev['@vitejs/plugin-vue'] || deps['@vitejs/plugin-vue'];
-
-if (!viteKey || !pluginVue) {
-  console.log('skip');
-  process.exit(0);
-}
-
-const viteVersion = viteKey === 'dev' ? dev.vite : deps.vite;
-const viteMajor = parseInt((String(viteVersion).match(/(\d+)/) || [])[1], 10);
-const pluginMajor = parseInt((String(pluginVue).match(/(\d+)/) || [])[1], 10);
-
-let changed = false;
-if (!Number.isNaN(viteMajor) && !Number.isNaN(pluginMajor)) {
-  if (viteMajor >= 7 && pluginMajor <= 5) {
-    if (dev['@vitejs/plugin-vue']) {
-      dev['@vitejs/plugin-vue'] = '^6.0.0';
-    } else {
-      deps['@vitejs/plugin-vue'] = '^6.0.0';
-    }
-    changed = true;
-  }
-}
-
-if (changed) {
-  pkg.dependencies = deps;
-  pkg.devDependencies = dev;
-  fs.writeFileSync(path, JSON.stringify(pkg, null, 4) + '\n');
-  console.log('changed');
-} else {
-  console.log('ok');
-}
-NODE
-)
-
-    if [ "$result" = "changed" ]; then
-        print_warning "@vitejs/plugin-vue auf ^6.0.0 angepasst (kompatibel mit Vite 7)"
-    elif [ "$result" = "skip" ]; then
-        print_info "Kein Vite/Vue Plugin gefunden, keine Anpassung nötig"
+configure_laravel_boost() {
+    [[ "$INSTALL_BOOST" != "true" ]] && { print_info "Boost übersprungen"; return 0; }
+    
+    print_info "Konfiguriere Laravel Boost..."
+    if php artisan boost:install 2>/dev/null; then
+        print_success "Laravel Boost konfiguriert"
     else
-        print_info "Frontend-Abhängigkeiten sind kompatibel"
+        print_warning "Boost Konfiguration fehlgeschlagen"
     fi
 }
 
-# SQLite-Datenbank einrichten
+#================================================================================
+# DATENBANK SETUP
+#================================================================================
+
+# Testet die Datenbankverbindung
+test_database_connection() {
+    local db_type="$1"
+    local host="$2"
+    local port="$3"
+    local database="$4"
+    local username="$5"
+    local password="$6"
+    
+    case "$db_type" in
+        mysql)
+            mysql -h "$host" -P "$port" -u "$username" -p"$password" -e "SELECT 1;" 2>/dev/null
+            return $?
+            ;;
+        pgsql)
+            PGPASSWORD="$password" psql -h "$host" -p "$port" -U "$username" -d "$database" -c "SELECT 1;" 2>/dev/null
+            return $?
+            ;;
+        sqlsrv)
+            print_warning "SQL Server Verbindungstest wird übersprungen"
+            return 0
+            ;;
+        sqlite)
+            return 0
+            ;;
+    esac
+}
+
+# Erstellt die Datenbank falls sie nicht existiert
+create_database_if_not_exists() {
+    local db_type="$1"
+    local host="$2"
+    local port="$3"
+    local database="$4"
+    local username="$5"
+    local password="$6"
+    
+    case "$db_type" in
+        mysql)
+            if ! mysql -h "$host" -P "$port" -u "$username" -p"$password" -e "USE \`$database\`;" 2>/dev/null; then
+                print_info "Erstelle MySQL-Datenbank '$database'..."
+                if mysql -h "$host" -P "$port" -u "$username" -p"$password" -e "CREATE DATABASE \`$database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null; then
+                    print_success "Datenbank '$database' erstellt"
+                else
+                    print_error "Datenbank konnte nicht erstellt werden"
+                    return 1
+                fi
+            else
+                print_info "Datenbank '$database' existiert bereits"
+            fi
+            ;;
+        pgsql)
+            if ! PGPASSWORD="$password" psql -h "$host" -p "$port" -U "$username" -d "$database" -c "SELECT 1;" 2>/dev/null; then
+                print_info "Erstelle PostgreSQL-Datenbank '$database'..."
+                if PGPASSWORD="$password" psql -h "$host" -p "$port" -U "$username" -c "CREATE DATABASE \"$database\" ENCODING 'UTF8';" 2>/dev/null; then
+                    print_success "Datenbank '$database' erstellt"
+                else
+                    print_error "Datenbank konnte nicht erstellt werden"
+                    return 1
+                fi
+            else
+                print_info "Datenbank '$database' existiert bereits"
+            fi
+            ;;
+        sqlsrv)
+            print_warning "SQL Server Datenbank muss manuell erstellt werden"
+            ;;
+    esac
+    
+    return 0
+}
+
 setup_database() {
-    print_step "SQLite-Datenbank wird eingerichtet..."
+    print_step "${DATABASE_LABEL[$DATABASE_TYPE]} einrichten"
     
-    # Datenbankverzeichnis erstellen falls nicht vorhanden
-    if [ ! -d "database" ]; then
-        mkdir -p database
-    fi
-    
-    # SQLite-Datenbankdatei erstellen
-    touch database/database.sqlite
-    print_success "SQLite-Datenbankdatei erstellt"
-    
-    # .env Datei für SQLite konfigurieren
-    if [ -f ".env" ]; then
-        # Backup der originalen .env
-        cp .env .env.backup
+    if [[ -f ".env" ]]; then
+        cp .env ".env.backup.$(date +%Y%m%d_%H%M%S)"
         
-        # Datenbank-Konfiguration anpassen
-        sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=sqlite/' .env
-        sed -i 's|# DB_DATABASE=.*|DB_DATABASE=database/database.sqlite|' .env
-        sed -i 's/DB_HOST=.*/# DB_HOST=127.0.0.1/' .env
-        sed -i 's/DB_PORT=.*/# DB_PORT=3306/' .env
-        sed -i 's/DB_USERNAME=.*/# DB_USERNAME=root/' .env
-        sed -i 's/DB_PASSWORD=.*/# DB_PASSWORD=/' .env
+        case "$DATABASE_TYPE" in
+            sqlite)
+                [[ -d "database" ]] || mkdir -p database
+                touch database/database.sqlite
+                print_success "SQLite-Datenbank erstellt"
+                
+                sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=sqlite/' .env
+                sed -i 's|# DB_DATABASE=.*|DB_DATABASE=database/database.sqlite|' .env
+                sed -i 's/^DB_HOST=.*/# DB_HOST=127.0.0.1/' .env
+                sed -i 's/^DB_PORT=.*/# DB_PORT=3306/' .env
+                sed -i 's/^DB_USERNAME=.*/# DB_USERNAME=root/' .env
+                sed -i 's/^DB_PASSWORD=.*/# DB_PASSWORD=/' .env
+                ;;
+            
+            mysql)
+                sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=mysql/' .env
+                sed -i "s/^#\?DB_HOST=.*/DB_HOST=$DB_HOST/" .env
+                sed -i "s/^#\?DB_PORT=.*/DB_PORT=$DB_PORT/" .env
+                sed -i "s/^#\?DB_DATABASE=.*/DB_DATABASE=$DB_DATABASE/" .env
+                sed -i "s/^#\?DB_USERNAME=.*/DB_USERNAME=$DB_USERNAME/" .env
+                sed -i "s/^#\?DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" .env
+                
+                print_info "Teste MySQL-Verbindung..."
+                if command_exists mysql; then
+                    if test_database_connection "mysql" "$DB_HOST" "$DB_PORT" "" "$DB_USERNAME" "$DB_PASSWORD"; then
+                        print_success "Verbindung OK"
+                        create_database_if_not_exists "mysql" "$DB_HOST" "$DB_PORT" "$DB_DATABASE" "$DB_USERNAME" "$DB_PASSWORD"
+                    else
+                        print_warning "Verbindungstest fehlgeschlagen - MySQL Client nicht verfügbar oder falsche Zugangsdaten"
+                        print_info "Stellen Sie sicher, dass die Datenbank manuell erstellt wird"
+                    fi
+                else
+                    print_warning "MySQL Client nicht installiert - Verbindungstest übersprungen"
+                    print_info "Stellen Sie sicher, dass die Datenbank existiert"
+                fi
+                ;;
+            
+            pgsql)
+                sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=pgsql/' .env
+                sed -i "s/^#\?DB_HOST=.*/DB_HOST=$DB_HOST/" .env
+                sed -i "s/^#\?DB_PORT=.*/DB_PORT=$DB_PORT/" .env
+                sed -i "s/^#\?DB_DATABASE=.*/DB_DATABASE=$DB_DATABASE/" .env
+                sed -i "s/^#\?DB_USERNAME=.*/DB_USERNAME=$DB_USERNAME/" .env
+                sed -i "s/^#\?DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" .env
+                
+                print_info "Teste PostgreSQL-Verbindung..."
+                if command_exists psql; then
+                    if test_database_connection "pgsql" "$DB_HOST" "$DB_PORT" "$DB_DATABASE" "$DB_USERNAME" "$DB_PASSWORD"; then
+                        print_success "Verbindung OK"
+                    else
+                        print_info "Versuche Datenbank zu erstellen..."
+                        create_database_if_not_exists "pgsql" "$DB_HOST" "$DB_PORT" "$DB_DATABASE" "$DB_USERNAME" "$DB_PASSWORD"
+                    fi
+                else
+                    print_warning "PostgreSQL Client (psql) nicht installiert - Verbindungstest übersprungen"
+                    print_info "Stellen Sie sicher, dass die Datenbank existiert"
+                fi
+                ;;
+            
+            sqlsrv)
+                sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=sqlsrv/' .env
+                sed -i "s/^#\?DB_HOST=.*/DB_HOST=$DB_HOST/" .env
+                sed -i "s/^#\?DB_PORT=.*/DB_PORT=$DB_PORT/" .env
+                sed -i "s/^#\?DB_DATABASE=.*/DB_DATABASE=$DB_DATABASE/" .env
+                sed -i "s/^#\?DB_USERNAME=.*/DB_USERNAME=$DB_USERNAME/" .env
+                sed -i "s/^#\?DB_PASSWORD=.*/DB_PASSWORD=$DB_PASSWORD/" .env
+                print_warning "SQL Server: Bitte stellen Sie sicher, dass die Datenbank manuell existiert"
+                ;;
+        esac
         
-        print_success ".env Datei für SQLite konfiguriert"
+        print_success ".env für ${DATABASE_LABEL[$DATABASE_TYPE]} konfiguriert"
     else
-        print_error ".env Datei nicht gefunden!"
-        handle_error "Datenbank Konfiguration"
+        print_error ".env nicht gefunden!"
+        handle_error "Datenbank Konfiguration" $EXIT_ERROR_DB
     fi
     
-    # Application Key generieren
-    php artisan key:generate || handle_error "Application Key Generation"
+    php artisan key:generate >/dev/null 2>&1 || handle_error "Application Key" $EXIT_ERROR_DB
     print_success "Application Key generiert"
 }
 
-# Migrationen durchführen
 run_migrations() {
-    print_step "Datenbank-Migrationen werden durchgeführt..."
-    
-    print_info "Führe initiale Migrationen durch..."
-    php artisan migrate --force || handle_error "Migrationen"
-    print_success "Migrationen erfolgreich durchgeführt"
+    print_step "Migrationen durchführen"
+    php artisan migrate --force >/dev/null 2>&1 || handle_error "Migrationen" $EXIT_ERROR_DB
+    print_success "Migrationen erfolgreich"
 }
 
-# Filament Admin-User erstellen
+#================================================================================
+# ADMIN USER & FRONTEND
+#================================================================================
+
 create_admin_user() {
-    if [ "$INSTALL_FILAMENT" = true ]; then
-        print_step "Filament Admin-User wird erstellt..."
-        local default_name="Admin User"
-        local default_email="admin@example.com"
-        local default_password="password"
-
-        if [ "$INSTALLATION_MODE" = "manual" ]; then
-            print_info "Bitte geben Sie die Admin-User-Daten ein:"
-            read -p "Name (Standard: $default_name): " -r ADMIN_NAME
-            if [ -z "$ADMIN_NAME" ]; then
-                ADMIN_NAME="$default_name"
-            fi
-
-            read -p "Email (Standard: $default_email): " -r ADMIN_EMAIL
-            if [ -z "$ADMIN_EMAIL" ]; then
-                ADMIN_EMAIL="$default_email"
-            fi
-
-            read -p "Passwort (Standard: $default_password): " -s ADMIN_PASSWORD
-            if [ -z "$ADMIN_PASSWORD" ]; then
-                ADMIN_PASSWORD="$default_password"
-            fi
-            echo
-        else
-            ADMIN_NAME=${ADMIN_NAME:-"$default_name"}
-            ADMIN_EMAIL=${ADMIN_EMAIL:-"$default_email"}
-            ADMIN_PASSWORD=${ADMIN_PASSWORD:-"$default_password"}
-        fi
-        
-        # User erstellen mit Filament
-        php artisan make:filament-user \
-            --name="$ADMIN_NAME" \
-            --email="$ADMIN_EMAIL" \
-            --password="$ADMIN_PASSWORD" || handle_error "Admin User Erstellung"
-        
-        print_success "Filament Admin-User erstellt"
-        print_info "Login-Daten:"
-        print_info "  Email: $ADMIN_EMAIL"
-        print_info "  Passwort: $ADMIN_PASSWORD"
-        print_info "  URL: http://localhost:8000/admin"
-    else
-        print_info "Admin-User Erstellung übersprungen (Filament nicht installiert)"
+    [[ "$INSTALL_FILAMENT" != "true" ]] && { print_info "Admin-User übersprungen"; return 0; }
+    
+    print_step "Filament Admin-User erstellen"
+    local default_name="Admin User"
+    local default_email="admin@example.com"
+    local default_password="password"
+    
+    if [[ "$INSTALLATION_MODE" == "manual" ]]; then
+        print_info "Admin-Daten eingeben (Enter für Standard):"
+        read -r -p "Name [$default_name]: " ADMIN_NAME || true
+        read -r -p "Email [$default_email]: " ADMIN_EMAIL || true
+        read -r -s -p "Passwort [$default_password]: " ADMIN_PASSWORD || true
+        echo
     fi
+    
+    ADMIN_NAME="${ADMIN_NAME:-$default_name}"
+    ADMIN_EMAIL="${ADMIN_EMAIL:-$default_email}"
+    ADMIN_PASSWORD="${ADMIN_PASSWORD:-$default_password}"
+    
+    php artisan make:filament-user --name="$ADMIN_NAME" --email="$ADMIN_EMAIL" --password="$ADMIN_PASSWORD" >/dev/null 2>&1 || handle_error "Admin User Erstellung"
+    
+    print_success "Admin-User erstellt"
+    print_info "Login: $ADMIN_EMAIL / $ADMIN_PASSWORD"
+    print_info "URL: http://localhost:8000/admin"
 }
 
-# Zusätzliche Laravel-Packages konfigurieren
-configure_additional_packages() {
-    print_step "Zusätzliche Laravel-Packages werden konfiguriert..."
+fix_frontend_dependencies() {
+    print_step "Frontend-Abhängigkeiten prüfen"
     
-    # Laravel Sanctum konfigurieren
-    #php artisan vendor:publish --provider="Laravel\Sanctum\SanctumServiceProvider" --force 2>/dev/null || true
-    #print_success "Laravel Sanctum konfiguriert"
+    [[ -f "package.json" ]] || { print_info "Kein package.json"; return 0; }
+    command_exists node || { print_warning "Node.js nicht gefunden"; return 0; }
     
-    # Laravel Fortify konfigurieren
-    #php artisan vendor:publish --provider="Laravel\Fortify\FortifyServiceProvider" --force 2>/dev/null || true
-    #print_success "Laravel Fortify konfiguriert"
-    
-    # Laravel Telescope (nur in development)
-    #if [ "$APP_ENV" = "local" ] || [ -z "$APP_ENV" ]; then
-    #    php artisan vendor:publish --provider="Laravel\Telescope\TelescopeServiceProvider" --force 2>/dev/null || true
-    #    php artisan migrate 2>/dev/null || true
-    #    print_success "Laravel Telescope konfiguriert"
-    #fi
+    node -e '
+const fs = require("fs");
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const deps = pkg.dependencies || {};
+const dev = pkg.devDependencies || {};
+const viteKey = dev.vite ? "dev" : (deps.vite ? "prod" : null);
+const pluginVue = dev["@vitejs/plugin-vue"] || deps["@vitejs/plugin-vue"];
+if (!viteKey || !pluginVue) process.exit(0);
+const viteVersion = viteKey === "dev" ? dev.vite : deps.vite;
+const viteMajor = parseInt((String(viteVersion).match(/(\d+)/) || [])[1], 10);
+const pluginMajor = parseInt((String(pluginVue).match(/(\d+)/) || [])[1], 10);
+if (!Number.isNaN(viteMajor) && !Number.isNaN(pluginMajor) && viteMajor >= 7 && pluginMajor <= 5) {
+  if (dev["@vitejs/plugin-vue"]) dev["@vitejs/plugin-vue"] = "^6.0.0";
+  else deps["@vitejs/plugin-vue"] = "^6.0.0";
+  pkg.dependencies = deps;
+  pkg.devDependencies = dev;
+  fs.writeFileSync("package.json", JSON.stringify(pkg, null, 4) + "\n");
+  console.log("changed");
+}
+' 2>/dev/null | grep -q "changed" && print_warning "Vue Plugin auf v6 angepasst" || true
+}
 
-    # Laravel Boost konfigurieren (falls ausgewählt)
-    if [ "$INSTALL_BOOST" = true ]; then
-        print_info "Laravel Boost wird konfiguriert..."
-        if php artisan boost:install 2>/dev/null; then
-            print_success "Laravel Boost wurde konfiguriert"
-        else
-            print_warning "Laravel Boost Konfiguration fehlgeschlagen, möglicherweise bereits konfiguriert"
-        fi
-    else
-        print_info "Laravel Boost wird übersprungen (nicht ausgewählt)"
-    fi
-    
+build_frontend() {
+    print_step "Frontend-Assets bauen"
     fix_frontend_dependencies
-
-    # Frontend Assets bauen
-    print_info "Frontend Assets werden gebaut..."
-    npm install || handle_error "NPM Installation"
-    npm run build || handle_error "Frontend Assets Build"
-    print_success "Frontend Assets gebaut"
+    npm install >/dev/null 2>&1 || handle_error "NPM Installation"
+    npm run build >/dev/null 2>&1 || handle_error "Frontend Build"
+    print_success "Frontend-Assets gebaut"
 }
 
-# Sanity Report ausgeben
-sanity_report() {
-    print_step "Sanity Report"
+#================================================================================
+# GIT & BERECHTIGUNGEN
+#================================================================================
 
-    local laravel_version="unbekannt"
-    local php_version="unbekannt"
-    local composer_version="unbekannt"
-    local node_version="unbekannt"
-    local npm_version="unbekannt"
-
-    if command -v php &> /dev/null; then
-        php_version=$(php -r "echo PHP_VERSION;" 2>/dev/null || echo "unbekannt")
-    fi
-    if command -v composer &> /dev/null; then
-        composer_version=$(composer --version 2>/dev/null | awk '{print $3}')
-    fi
-    if command -v node &> /dev/null; then
-        node_version=$(node --version 2>/dev/null)
-    fi
-    if command -v npm &> /dev/null; then
-        npm_version=$(npm --version 2>/dev/null)
-    fi
-    if command -v php &> /dev/null && [ -f artisan ]; then
-        laravel_version=$(php artisan --version 2>/dev/null || echo "unbekannt")
-    fi
-
-    print_info "Projekt: $PROJECT_NAME"
-    print_info "Pfad: $(pwd)"
-    print_info "Laravel: $laravel_version"
-    print_info "PHP: $php_version | Composer: $composer_version"
-    print_info "Node: $node_version | NPM: $npm_version"
-    print_info "Installationsmodus: $INSTALLATION_MODE"
-
-    if [ "$DATABASE_TYPE" = "sqlite" ]; then
-        if [ -f "database/database.sqlite" ]; then
-            print_success "SQLite Datenbank vorhanden"
-        else
-            print_warning "SQLite Datenbank fehlt"
-        fi
-    else
-        print_info "Datenbank: $DATABASE_TYPE"
-    fi
-
-    if [ -w "storage" ]; then
-        print_success "storage/ beschreibbar"
-    else
-        print_warning "storage/ nicht beschreibbar"
-    fi
-
-    if [ -w "bootstrap/cache" ]; then
-        print_success "bootstrap/cache beschreibbar"
-    else
-        print_warning "bootstrap/cache nicht beschreibbar"
-    fi
-
-    local -a package_labels=()
-    if [ "${#SELECTED_PACKAGE_LABELS[@]}" -gt 0 ]; then
-        package_labels=("${SELECTED_PACKAGE_LABELS[@]}")
-    else
-        if [ "$INSTALL_FILAMENT" = true ]; then
-            package_labels+=("${PACKAGE_LABEL[filament]}")
-        fi
-        if [ "$INSTALL_LIVEWIRE" = true ]; then
-            package_labels+=("${PACKAGE_LABEL[livewire]}")
-        fi
-        if [ "$INSTALL_PEST" = true ]; then
-            package_labels+=("${PACKAGE_LABEL[pest]}")
-        fi
-        if [ "$INSTALL_BOOST" = true ]; then
-            package_labels+=("${PACKAGE_LABEL[boost]}")
-        fi
-    fi
-
-    if [ "${#package_labels[@]}" -eq 0 ]; then
-        print_info "Pakete: Keine"
-    else
-        local IFS=', '
-        print_info "Pakete: ${package_labels[*]}"
-    fi
-
-    if [ "${#SELECTED_FEATURE_LABELS[@]}" -eq 0 ]; then
-        print_info "Features: Keine"
-    else
-        local IFS=', '
-        print_info "Features: ${SELECTED_FEATURE_LABELS[*]}"
-    fi
-
-    if [ -d ".git" ]; then
-        local git_head
-        git_head=$(git rev-parse --short HEAD 2>/dev/null || true)
-        if [ -n "$git_head" ]; then
-            print_info "Git: initialisiert ($git_head)"
-        else
-            print_info "Git: initialisiert"
-        fi
-    else
-        print_info "Git: nicht initialisiert"
-    fi
-}
-
-# Git Repository initialisieren
 setup_git_repository() {
-    if [ "$ENABLE_GIT" != true ]; then
-        print_info "Git Setup übersprungen"
-        return
-    fi
-
-    print_step "Git Repository wird initialisiert..."
-
-    if [ -d ".git" ]; then
-        print_warning "Git-Repository existiert bereits, überspringe Initialisierung"
-        return
-    fi
-
-    git init >/dev/null 2>&1 || handle_error "Git Init"
-
-    if ! git config user.name >/dev/null 2>&1; then
-        local git_name="${GIT_USER_NAME:-${USER:-user}}"
-        git config user.name "$git_name"
-        print_info "Lokaler Git user.name gesetzt: $git_name"
-    fi
-    if ! git config user.email >/dev/null 2>&1; then
-        local git_email="${GIT_USER_EMAIL:-${USER:-user}}@localhost"
-        git config user.email "$git_email"
-        print_info "Lokaler Git user.email gesetzt: $git_email"
-    fi
-
-    git add -A || handle_error "Git Add"
-    if git diff --cached --quiet; then
-        print_info "Keine Änderungen zum Commit vorhanden"
-        return
-    fi
-    git commit -m "$GIT_INITIAL_COMMIT_MESSAGE" >/dev/null 2>&1 || handle_error "Git Commit"
-    print_success "Git Repository initialisiert und Commit erstellt"
+    [[ "$ENABLE_GIT" != "true" ]] && { print_info "Git übersprungen"; return 0; }
+    
+    print_step "Git Repository initialisieren"
+    
+    [[ -d ".git" ]] && { print_warning "Git existiert bereits"; return 0; }
+    
+    git init >/dev/null 2>&1 || handle_error "Git Init" $EXIT_ERROR_GIT
+    
+    git config user.name "$GIT_USER_NAME" 2>/dev/null || true
+    git config user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+    
+    git add -A >/dev/null 2>&1 || handle_error "Git Add" $EXIT_ERROR_GIT
+    git diff --cached --quiet && { print_info "Keine Änderungen"; return 0; }
+    
+    git commit -m "$GIT_INITIAL_COMMIT_MESSAGE" >/dev/null 2>&1 || handle_error "Git Commit" $EXIT_ERROR_GIT
+    print_success "Git Repository initialisiert"
 }
 
-# Dateiberechtigungen setzen
 set_permissions() {
-    print_step "Dateiberechtigungen werden gesetzt..."
-    
-    # Standard-Laravel-Berechtigungen
-    chmod -R 775 storage
-    chmod -R 775 bootstrap/cache
-    
-    # Ownership setzen ( falls sudo verfügbar)
-    if command -v sudo &> /dev/null; then
-        sudo chown -R $USER:$USER storage bootstrap/cache 2>/dev/null || true
+    print_step "Berechtigungen setzen"
+    chmod -R 775 storage bootstrap/cache
+    if command_exists sudo; then
+        sudo chown -R "$USER:$USER" storage bootstrap/cache 2>/dev/null || true
     fi
-    
-    print_success "Dateiberechtigungen gesetzt"
+    print_success "Berechtigungen gesetzt"
 }
 
-# Optimierung durchführen
 optimize_application() {
-    print_step "Anwendung wird optimiert..."
-    
-    # Cache leeren und neu aufbauen
-    php artisan cache:clear || true
-    php artisan config:clear || true
-    php artisan route:clear || true
-    php artisan view:clear || true
-    
-    # Cache für Produktion aufbauen
-    php artisan config:cache || handle_error "Config Cache"
-    php artisan route:cache || handle_error "Route Cache"
-    php artisan view:cache || handle_error "View Cache"
-    
+    print_step "Anwendung optimieren"
+    php artisan cache:clear 2>/dev/null || true
+    php artisan config:clear 2>/dev/null || true
+    php artisan route:clear 2>/dev/null || true
+    php artisan view:clear 2>/dev/null || true
+    php artisan config:cache >/dev/null 2>&1 || print_warning "Config-Cache fehlgeschlagen"
+    php artisan route:cache >/dev/null 2>&1 || print_warning "Route-Cache fehlgeschlagen"
+    php artisan view:cache >/dev/null 2>&1 || print_warning "View-Cache fehlgeschlagen"
     print_success "Anwendung optimiert"
 }
 
-# Entwicklungsserver starten
-start_development_server() {
-    print_step "Entwicklungsserver wird gestartet..."
+#================================================================================
+# SANITY REPORT & ABSCHLUSS
+#================================================================================
+
+sanity_report() {
+    print_step "Sanity Report"
     
-    print_success "Installation abgeschlossen! 🎉"
-    echo
-    print_info "Projekt-Informationen:"
-    print_info "  Projektname: $PROJECT_NAME"
-    print_info "  Datenbank: SQLite"
-    print_info "  Laravel: $(php artisan --version)"
-    print_info "  Installationsmodus: $INSTALLATION_MODE"
+    local lv="unbekannt"
+    local pv="unbekannt"
+    local cv="unbekannt"
+    local nv="unbekannt"
+    local nm="unbekannt"
     
-    # Installierte Pakete anzeigen
-    if [ "$INSTALL_FILAMENT" = true ]; then
-        print_info "  Filament: installiert"
-    fi
-    if [ "$INSTALL_LIVEWIRE" = true ]; then
-        print_info "  Livewire: installiert"
-    fi
-    if [ "$INSTALL_PEST" = true ]; then
-        print_info "  Pest PHP: installiert"
-    fi
-    if [ "$INSTALL_BOOST" = true ]; then
-        print_info "  Laravel Boost: installiert"
-    fi
-    echo
+    command_exists php && pv=$(php -r "echo PHP_VERSION;")
+    command_exists composer && cv=$(composer --version | awk '{print $3}')
+    command_exists node && nv=$(node --version)
+    command_exists npm && nm=$(npm --version)
+    command_exists php && [[ -f artisan ]] && lv=$(php artisan --version)
     
-    print_info "Nächste Schritte:"
-    print_info "  1. Entwicklungsserver starten: php artisan serve"
-    if [ "$INSTALL_FILAMENT" = true ]; then
-        print_info "  2. Admin-Panel öffnen: http://localhost:8000/admin"
-        if [ "$INSTALL_PEST" = true ]; then
-            print_info "  3. Tests ausführen: ./vendor/bin/pest"
-            print_info "  4. Projekt optimieren: composer run dev"
-        else
-            print_info "  3. Projekt optimieren: composer run dev"
-        fi
-    elif [ "$INSTALL_PEST" = true ]; then
-        print_info "  2. Tests ausführen: ./vendor/bin/pest"
-        print_info "  3. Projekt optimieren: composer run dev"
+    print_info "Projekt: $PROJECT_NAME"
+    print_info "Pfad: $(pwd)"
+    print_info "Laravel: $lv"
+    print_info "PHP: $pv | Composer: $cv"
+    print_info "Node: $nv | NPM: $nm"
+    print_info "Modus: $INSTALLATION_MODE"
+    print_info "Datenbank: ${DATABASE_LABEL[$DATABASE_TYPE]}"
+    if [[ "$DATABASE_TYPE" != "sqlite" ]]; then
+        print_info "DB-Verbindung: $DB_USERNAME@$DB_HOST:$DB_PORT/$DB_DATABASE"
+    fi
+    
+    if [[ "$DATABASE_TYPE" == "sqlite" ]]; then
+        [[ -f "database/database.sqlite" ]] && print_success "SQLite: OK" || print_warning "SQLite: Fehlt"
+    fi
+    [[ -w "storage" ]] && print_success "storage/: Schreibbar" || print_warning "storage/: Nicht schreibbar"
+    [[ -w "bootstrap/cache" ]] && print_success "bootstrap/cache: Schreibbar" || print_warning "bootstrap/cache: Nicht schreibbar"
+    
+    local -a labels=()
+    if [[ ${#SELECTED_PACKAGE_LABELS[@]} -gt 0 ]]; then
+        labels=("${SELECTED_PACKAGE_LABELS[@]}")
     else
-        print_info "  2. Projekt optimieren: composer run dev"
+        [[ "$INSTALL_FILAMENT" == "true" ]] && labels+=("${PACKAGE_LABEL[filament]}")
+        [[ "$INSTALL_LIVEWIRE" == "true" ]] && labels+=("${PACKAGE_LABEL[livewire]}")
+        [[ "$INSTALL_PEST" == "true" ]] && labels+=("${PACKAGE_LABEL[pest]}")
+        [[ "$INSTALL_BOOST" == "true" ]] && labels+=("${PACKAGE_LABEL[boost]}")
     fi
-    echo
     
-    print_info "Nützliche Befehle:"
-    print_info "  • Neue Migration: php artisan make:migration create_table"
-    print_info "  • Model erstellen: php artisan make:model ModelName"
-    print_info "  • Controller erstellen: php artisan make:controller ControllerName"
-    if [ "$INSTALL_FILAMENT" = true ]; then
-        print_info "  • Filament Resource: php artisan make:filament-resource ResourceName"
-    fi
-    if [ "$INSTALL_PEST" = true ]; then
-        print_info "  • Tests ausführen: ./vendor/bin/pest"
-    fi
-    echo
+    [[ ${#labels[@]} -eq 0 ]] && print_info "Pakete: Keine" || print_info "Pakete: ${labels[*]}"
+    [[ ${#SELECTED_FEATURE_LABELS[@]} -eq 0 ]] && print_info "Features: Keine" || print_info "Features: ${SELECTED_FEATURE_LABELS[*]}"
     
-    # Frage ob Entwicklungsserver gestartet werden soll
-    read -p "Möchten Sie den Entwicklungsserver jetzt starten? (J/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Jj]$ ]] || [ -z "$REPLY" ]; then
-        print_info "Starte Laravel Entwicklungsserver..."
-        print_info "Server wird unter http://localhost:8000 laufen"
-        print_info "Mit STRG+C stoppen"
-        echo
-        composer run dev
+    if [[ -d ".git" ]]; then
+        local gh
+        gh=$(git rev-parse --short HEAD 2>/dev/null)
+        [[ -n "$gh" ]] && print_info "Git: Initialisiert ($gh)" || print_info "Git: Initialisiert"
     else
-        print_info "Starten Sie den Server manuell mit: composer run dev"
+        print_info "Git: Nicht initialisiert"
     fi
 }
 
-# Hauptfunktion
+start_development_server() {
+    print_step "Installation abgeschlossen!"
+    echo
+    print_success "Projekt erfolgreich erstellt!"
+    echo
+    print_info "Projekt: $PROJECT_NAME"
+    print_info "Pfad: $(pwd)"
+    print_info "Datenbank: ${DATABASE_LABEL[$DATABASE_TYPE]}"
+    print_info "Laravel: $(php artisan --version 2>/dev/null || echo 'unbekannt')"
+    [[ "$INSTALL_FILAMENT" == "true" ]] && print_info "Admin: http://localhost:8000/admin"
+    echo
+    print_info "Befehle:"
+    print_info "  composer run dev     - Server starten"
+    print_info "  php artisan serve    - Laravel Server"
+    [[ "$INSTALL_PEST" == "true" ]] && print_info "  ./vendor/bin/pest    - Tests"
+    [[ "$INSTALL_FILAMENT" == "true" ]] && print_info "  php artisan make:filament-resource Name"
+    echo
+    
+    read -r -p "Server jetzt starten? (J/n): " -n 1 || true
+    echo
+    if [[ "$REPLY" =~ ^[Nn]$ ]]; then
+        print_info "Starten Sie manuell mit: composer run dev"
+    else
+        print_info "Starte Server unter http://localhost:8000"
+        print_info "STRG+C zum Stoppen"
+        echo
+        composer run dev
+    fi
+}
+
+#================================================================================
+# HAUPTFUNKTION
+#================================================================================
+
 main() {
     clear
     print_logo
-    print_header "Laravel + Filament 5.1 Installationsskript"
-    print_info "Dieses Skript erstellt ein vollständiges Laravel-Projekt mit modernem Stack"
+    print_header "Laravel + Filament Installationsskript v${SCRIPT_VERSION}"
+    print_info "Erstellt ein vollständiges Laravel-Projekt mit modernem Stack"
     
-    # Projektnamen abfragen
     ask_project_name
-    
-    # Installationsmodus abfragen
     ask_installation_mode
     
-    # Bei manueller Installation Paketauswahl durchführen
-    if [ "$INSTALLATION_MODE" = "manual" ]; then
+    if [[ "$INSTALLATION_MODE" == "manual" ]]; then
         manual_installation
     else
-        print_success "Automatische Installation mit Standard-Paketen"
+        print_success "Automatische Installation"
         ENABLE_GIT=true
         print_info "Git wird automatisch initialisiert"
     fi
     
-    print_info "Projektname: $PROJECT_NAME | Datenbank: $DATABASE_TYPE | Modus: $INSTALLATION_MODE"
+    print_info "Projekt: $PROJECT_NAME | DB: $DATABASE_TYPE | Modus: $INSTALLATION_MODE"
     
-    # Installationsschritte durchführen
+    # Installation mit Fortschrittsanzeige
+    local total_steps=14
+    local current_step=0
+    
+    ((++current_step))
     check_prerequisites
-    progress_bar 2
+    show_progress "$current_step" "$total_steps" "Systemvoraussetzungen OK"
     
-    install_laravel_installer
-    progress_bar 1
+    ((++current_step))
+    install_or_update_laravel_installer
+    show_progress "$current_step" "$total_steps" "Laravel Installer bereit"
     
+    ((++current_step))
     create_laravel_project
-    progress_bar 3
+    show_progress "$current_step" "$total_steps" "Projekt erstellt"
     
-    install_dependencies
-    progress_bar 5
-
+    ((++current_step))
+    install_extra_packages
+    show_progress "$current_step" "$total_steps" "Pakete installiert"
+    
+    ((++current_step))
     install_features
-    progress_bar 2
+    show_progress "$current_step" "$total_steps" "Features eingerichtet"
     
+    ((++current_step))
     install_filament
+    show_progress "$current_step" "$total_steps" "Filament installiert"
+    
+    ((++current_step))
     install_livewire
-    progress_bar 2
+    show_progress "$current_step" "$total_steps" "Livewire installiert"
     
+    ((++current_step))
     setup_database
-    progress_bar 2
+    show_progress "$current_step" "$total_steps" "Datenbank bereit"
     
+    ((++current_step))
     run_migrations
-    progress_bar 1
+    show_progress "$current_step" "$total_steps" "Migrationen abgeschlossen"
     
+    ((++current_step))
     create_admin_user
-    progress_bar 1
+    show_progress "$current_step" "$total_steps" "Admin erstellt"
     
-    configure_additional_packages
-    progress_bar 4
-
+    ((++current_step))
+    configure_laravel_boost
+    show_progress "$current_step" "$total_steps" "Boost konfiguriert"
+    
+    ((++current_step))
+    build_frontend
+    show_progress "$current_step" "$total_steps" "Frontend gebaut"
+    
+    ((++current_step))
     setup_git_repository
-    
     set_permissions
     optimize_application
-    progress_bar 2
-
+    show_progress "$current_step" "$total_steps" "Optimierung abgeschlossen"
+    
+    ((++current_step))
     sanity_report
+    show_progress "$current_step" "$total_steps" "Installation komplett"
     
     start_development_server
 }
 
-# Skript starten
+#================================================================================
+# SKRIPT STARTEN
+#================================================================================
+
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
